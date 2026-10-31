@@ -28,14 +28,14 @@
 |---|---|
 | `/` | **3D 网络对战**（默认即游戏；老吴 2026-10-28：电脑/手机同入口，验证台不再占首页） |
 | `/console` 或 `/?debug=1` | 验证台（注册/登录/俱乐部/牌桌/一键模拟 4 人开局） |
-| `/app` | **单机版牌桌**（单文件内联，含牌面 base64，无需外部资源） |
+| `/app` | **3D 网络版**（与 `/` 同一份产物 `frontend/build/net3d.html`；单机版已于 2026-10-31 清除） |
 | `/app/net` | **网络对战大厅 + 牌桌**（与 `/` 同一份 3D 产物；四人各自开一个就是四人桌） |
 | `/health` | 健康检查（返回 `{"ok":true,...}`） |
 | `/api/*` | REST 接口 |
 | `/play` | Socket.IO 端点（**不是默认的 `/socket.io`**，反代必须放行） |
 
-> `/app` 与 `/app/net` 都是 `node frontend/build.mjs` 的产物（`frontend/build/index.html` / `net.html`）。
-> 忘了打包会返回 404 并提示先跑打包命令。`/net.html` 是 `/app/net` 的别名，方便本地开发直接开。
+> `/`、`/app`、`/app/net`、`/app/net3d` 都是 `node frontend/build.mjs` 的产物 `frontend/build/net3d.html`（单机版已于 2026-10-31 清除，不再有 `build/index.html` / `net.html`）。
+> 忘了打包会返回 404 并提示先跑打包命令。`/net.html` 是 `/app/net3d` 的别名，方便本地开发直接开。
 
 ### 0.2 环境变量
 
