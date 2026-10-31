@@ -1,0 +1,42 @@
+# 依赖与缓存
+node_modules
+npm-debug.log*
+.npm
+
+# 版本控制 / 编辑器
+.git
+.gitignore
+.DS_Store
+.idea
+.vscode
+
+# 运行时数据：绝不能打进镜像（账号库 + WAL + 上传头像）
+server/data
+
+# 测试与本机工具（运行时不需要）
+test
+server/test
+tools
+frontend/__probe*.cjs
+frontend/build/__wtest.txt
+
+# 文档与密钥
+docs
+*.md
+!README.md
+.env
+.env.*
+!/.env.example
+
+# 构建产物之外的前端源码（镜像只用 frontend/build 单文件）
+frontend/main.js
+frontend/game-loop.js
+frontend/index.html
+frontend/style.css
+frontend/build.mjs
+frontend/assets
+
+# 用户提供的大体积美术源（镜像只用 frontend/build 内联产物）
+148麻将子拆分
+010麻将图标
+.cache

@@ -1,0 +1,30 @@
+{
+  "title": "柒鞗會",
+  "subtitle": "武汉红中赖子杠",
+  "technique": "網絡對戰",
+  "tagline": "局域网 / Tailscale / 公网",
+  "edition": "001 / 001",
+  "collection": "柒鞗會 · 麻將俱樂部",
+  "description": "柒鞗會麻将俱乐部登录页 3D 全息卡。",
+  "font": "/System/Library/Fonts/STHeiti Light.ttc",
+  "assets": {
+    "subject": "./assets/subject.png",
+    "background": "./assets/background.png",
+    "text": "./assets/text.png",
+    "lineart": "./assets/lineart.png",
+    "model": "./assets/card.glb"
+  },
+  "parameters": {
+    "subjectScale": 1.3,
+    "subjectDepth": 0.42,
+    "backgroundDepth": -0.25,
+    "foil": 0.5
+  },
+  "safeArea": {
+    "scale": 1.1,
+    "offset": [
+      0,
+      0
+    ]
+  }
+}

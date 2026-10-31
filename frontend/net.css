@@ -1,0 +1,790 @@
+/* 武汉红中赖子杠 · 网络版大厅样式
+ *
+ * 只负责「登录 / 俱乐部 / 牌桌列表 / 入座」这些牌桌之外的界面；
+ * 牌桌本体沿用 style.css（同一套 .topbar / #table / #controls）。
+ * 配色跟着 style.css 的 :root 变量走（深绿桌布 + 白卡片）。
+ */
+
+/* ---------------- 大厅容器 ---------------- */
+#lobby {
+  max-width: 100%;
+  /* ❗不要 margin:0 auto —— flex 列容器里的 auto 左右 margin 会把块收缩成内容宽
+     再居中（老吴 2026-10-25 排查：这就是大厅不满幅的根源）。需要居中的子卡自己居中。 */
+  margin: 0;
+}
+
+/* —— 宽屏自适应（老吴 2026-10-25：大厅各页与牌桌/回放/统计一致撑满画面）——
+   手机（<900px）保持原有栈式布局；电脑上：
+   · 登录卡居中不拉伸（表单全宽 27 寸屏不可读），logo 卡照常居中；
+   · 俱乐部/牌桌/成员列表改多列网格，占满宽度；
+   · 大厅顶部（whoami + 模式行）随宽度铺开。 */
+@media (min-width: 900px) {
+  .lb-card { padding: 18px 20px 20px; }
+  .lb-card h2 { font-size: 17px; }
+  /* 宽屏：hero 背景拉宽（不遮主体字的前提下尽量满幅），表单仍居中限宽 */
+  #auth-view { max-width: min(920px, 96vw); margin: 0 auto; min-height: 420px; }
+  #auth-view .lb-form { max-width: 460px; margin-left: auto; margin-right: auto; }
+  #avatar-gate-view { max-width: 760px; margin: 0 auto; }
+  #clubs-list, #tables-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 12px;
+  }
+  #members-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 8px;
+  }
+  .lb-form { flex-wrap: wrap; }
+  .lb-form input, .lb-form select { flex: 1 1 180px; }
+  /* 宽屏呼吸感：大厅内容两侧留白，列表网格占满剩余宽度 */
+  #lobby { padding: 0 4px; }
+  #table-view .lb-card { max-width: none; }
+}
+
+.lb-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.lb-head h1 {
+  font-size: 18px;
+  margin: 0;
+  color: #fff;
+  letter-spacing: 1px;
+}
+.lb-head .lb-who {
+  font-size: 12px;
+  color: #d8f3e3;
+  text-align: right;
+  line-height: 1.3;
+}
+.lb-head .lb-who b { color: #fff; }
+
+.lb-card {
+  background: var(--panel);
+  border-radius: 12px;
+  padding: 14px 14px 16px;
+  margin-bottom: 12px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.12);
+}
+.lb-card h2 {
+  font-size: 15px;
+  margin: 0 0 10px;
+  color: var(--felt-dark);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.lb-card h2 .lb-count {
+  font-size: 12px;
+  font-weight: 400;
+  color: #7a8a83;
+}
+
+.lb-sub {
+  font-size: 12px;
+  color: #6b7a73;
+  margin: -6px 0 10px;
+  line-height: 1.5;
+}
+
+/* ---------------- 表单 ---------------- */
+.lb-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-top: 8px;
+}
+.lb-form input,
+.lb-form select {
+  flex: 1 1 130px;
+  min-width: 0;
+  padding: 9px 10px;
+  font-size: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfbfb;
+  color: var(--ink);
+  font-family: inherit;
+}
+.lb-form input:focus,
+.lb-form select:focus { outline: 2px solid #a9d9c1; outline-offset: 0; }
+
+.lb-btn {
+  border: none;
+  border-radius: 8px;
+  padding: 9px 14px;
+  font-size: 14px;
+  font-weight: 700;
+  font-family: inherit;
+  background: #eef2f0;
+  color: var(--felt-dark);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.lb-btn.primary { background: var(--felt); color: #fff; }
+.lb-btn.ghost { background: transparent; border: 1px solid var(--line); color: #55635d; }
+.lb-btn.warn { background: #fdecea; color: #b3261e; }
+.lb-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.lb-btn:active { transform: translateY(1px); }
+
+/* ---------------- 列表 ---------------- */
+.lb-list { display: flex; flex-direction: column; gap: 8px; }
+.lb-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fcfdfc;
+}
+/* 左侧文字占满剩余宽度，右侧按钮组整体靠右（不加 flex，靠 space-between 排）
+   2026-10-30：入会申请行有两个按钮，必须用 .lb-item-actions 包住，
+   否则三个子元素被 space-between 摊开，「同意」会落到行中间。 */
+.lb-item .lb-item-main { min-width: 0; flex: 1 1 auto; }
+.lb-item .lb-item-actions { display: flex; gap: 6px; flex: 0 0 auto; }
+.lb-item .lb-item-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lb-item .lb-item-meta { font-size: 12px; color: #7a8a83; margin-top: 2px; }
+
+.lb-empty {
+  font-size: 13px;
+  color: #8d9a94;
+  padding: 10px 2px;
+}
+
+/* ---------------- 玩法规则设定面板（老吴 2026-10-01） ---------------- */
+.rule-details {
+  margin-top: 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fcfdfc;
+  padding: 4px 10px 10px;
+}
+.rule-details > summary {
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--felt-dark);
+  padding: 4px 0;
+  user-select: none;
+}
+.rule-group {
+  border: none;
+  margin: 6px 0 0;
+  padding: 0;
+}
+.rule-group > legend {
+  font-size: 12px;
+  font-weight: 700;
+  color: #55635d;
+  margin-bottom: 2px;
+  padding: 0;
+}
+.rule-row {
+  display: flex;
+  align-items: center;
+  font-size: 12px;
+  color: var(--ink);
+  padding: 2px 0;
+}
+.rule-row label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+}
+.rule-row input[type='number'] {
+  width: 62px;
+  padding: 3px 6px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font-size: 12px;
+  font-family: inherit;
+}
+.rule-row select {
+  padding: 3px 6px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font-size: 12px;
+  font-family: inherit;
+}
+.lb-item .rule-summary { color: #4a8c6a; font-weight: 600; }
+
+/* ---------------- 大厅内的四座位牌桌 ---------------- */
+.lb-seats {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.lb-seat {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 9px 10px;
+  background: #fcfdfc;
+  min-height: 58px;
+}
+.lb-seat.empty { background: #f6f8f7; border-style: dashed; }
+.lb-seat.off { background: #fff8f7; border-color: #f3c9c4; }
+.lb-seat .lb-seat-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink);
+}
+.lb-seat .lb-seat-meta { font-size: 12px; color: #7a8a83; margin-top: 3px; }
+.lb-seat .lb-ready { color: #1f7a4d; font-weight: 700; }
+.lb-seat .lb-off { color: #b3261e; }
+/* 托管：比「断线」更进一步（服务器已经在替它打牌），用琥珀色与断线红区分开 */
+.lb-seat .lb-host { color: #9a6400; font-weight: 700; }
+
+/* 方位小徽章（复用 style.css 的 .dir-badge 配色，这里只补一个更小的尺寸） */
+.lb-seat .dir-badge.mini { width: 18px; height: 18px; font-size: 11px; line-height: 18px; }
+
+/* 托管按钮（断线座位由在线玩家主动托管；本人可自托管暂离；已托管可取消） */
+.lb-host-btn {
+  margin-top: 6px;
+  border: none;
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+  background: #f0a93b;
+  color: #3a2400;
+  white-space: nowrap;
+}
+.lb-host-btn:active { transform: translateY(1px); }
+
+/* 牌桌顶栏下方的托管控制条（开局后常驻，无托管对象时隐藏） */
+.host-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 4px 10px;
+  background: rgba(0, 0, 0, 0.18);
+}
+.host-controls[hidden] { display: none; }
+.host-btn {
+  border: none;
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+  background: #f0a93b;
+  color: #3a2400;
+  white-space: nowrap;
+}
+.host-btn.off { background: #e7eef0; color: #45525a; }
+.host-btn:active { transform: translateY(1px); }
+
+/* ---------------- 网络版顶栏的房间状态条 ---------------- */
+#room-status {
+  font-size: 12px;
+  color: #d8f3e3;
+  margin-top: 2px;
+  line-height: 1.4;
+}
+#room-status b { color: #fff; }
+
+/* 牌局未开始时的遮罩提示（大厅与牌桌之间过渡） */
+#waiting {
+  position: fixed;
+  inset: 0;
+  background: rgba(20, 60, 44, 0.92);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 10px;
+  font-size: 15px;
+  z-index: 40;
+  text-align: center;
+  padding: 24px;
+}
+#waiting .w-big { font-size: 22px; font-weight: 700; letter-spacing: 2px; }
+#waiting .w-sub { font-size: 13px; color: #cfe9da; max-width: 320px; line-height: 1.6; }
+/* ⚠️ 必须显式写 `[hidden]`（老吴 2026-10-02 发现的 bug）：
+   `#waiting { display:flex }` 是**作者样式**，会压过浏览器默认的 `[hidden]{display:none}`，
+   于是 `showPlay()` 里 `$('waiting').hidden = true` 形同虚设 —— 这层 fixed 全屏遮罩
+   永远盖在页面上，网络版一进牌桌就只见「正在发牌…」，牌桌根本露不出来。
+   （style.css 里 .auto-pass-tip / .winds / .flash / .modal / #tenpaibtn 都写了同样的规则） */
+#waiting[hidden] { display: none; }
+
+/* 大厅里的状态提示 */
+#lb-status { font-size: 12px; color: #c0392b; min-height: 16px; margin-top: 6px; }
+#lb-status.ok { color: #1f7a4d; }
+
+/* 窄屏：座位两列改一列 */
+@media (max-width: 360px) {
+  .lb-seats { grid-template-columns: 1fr; }
+}
+
+/* ------------------------------------------------------------------ *
+ * 手机横屏（老吴 2026-10-02）
+ * ------------------------------------------------------------------
+ * 牌桌本体由 style.css 的 landscape 块负责，这里只管大厅这四张卡片。
+ * 横屏可用高度只有 360~430，而大厅是「一张卡片排到底」的竖版布局，
+ * 实测「俱乐部详情」（成员列表 + 牌桌列表 + 两个表单）在 844×390 下纵溢 124px。
+ *
+ * 两手：
+ *   ① 全线压字号 / padding / margin（作用同 style.css，属于常规操作）；
+ *   ② 「俱乐部详情」用 **grid-auto-flow: column** 拆成左右两栏：
+ *      卡片里那 8 个子元素正好是「成员组 4 个 + 牌桌组 4 个」，
+ *      4 行 × 2 列 按列填充，就是「左栏成员、右栏牌桌」，
+ *      高度直接减半 —— **不用改 net.html 的 DOM**，纯 CSS 就能办。
+ *      （`grid-auto-flow: column` 是这里的省事关键：按列排，不用给子元素排序号。）
+ */
+/* ❗2026-10-24 收窄为**纯横屏**：竖屏手机的大厅已不再整页旋转（自动横屏只作用于
+   牌桌画面，见 style.css 的 html.in-play 作用域），未旋转的竖屏大厅不该吃这套
+   横屏压缩档 —— 原来的竖屏臂是「旋转大厅」时代的遗留。竖屏手机走基础栈式布局。 */
+@media (orientation: landscape) and (max-height: 520px) {
+  #lobby { max-width: 100%; }
+
+  .lb-head { margin-bottom: 6px; }
+  .lb-head h1 { font-size: 14px; line-height: 1.25; }
+  .lb-head h1 span { font-size: 10px !important; }
+  .lb-head .lb-who { font-size: 11px; }
+
+  .lb-card { padding: 7px 9px 8px; margin-bottom: 7px; border-radius: 10px; }
+  .lb-card h2 { font-size: 12px; margin: 0 0 5px; }
+  .lb-card h2 .lb-count { font-size: 10px; }
+  /* 卡片里手写的 `style="margin-top:16px"` 在横屏太奢侈 */
+  #club-view h2 { margin-top: 0 !important; }
+  .lb-sub { font-size: 10px; margin: -3px 0 5px; line-height: 1.35; }
+
+  .lb-form { gap: 5px; margin-top: 5px; }
+  .lb-form input, .lb-form select { flex: 1 1 96px; padding: 4px 7px; font-size: 11px; border-radius: 6px; }
+  .lb-btn { padding: 4px 9px; font-size: 11px; border-radius: 6px; }
+
+  .lb-list { gap: 4px; }
+  .lb-item { padding: 5px 8px; border-radius: 7px; }
+  .lb-item .lb-item-title { font-size: 11px; }
+  .lb-item .lb-item-meta { font-size: 10px; margin-top: 1px; }
+  .lb-empty { font-size: 11px; padding: 5px 2px; }
+
+  .lb-seats { gap: 5px; margin-bottom: 6px; }
+  .lb-seat { padding: 4px 6px; min-height: 0; border-radius: 7px; }
+  .lb-seat .lb-seat-top { font-size: 11px; gap: 4px; }
+  .lb-seat .lb-seat-meta { font-size: 10px; margin-top: 1px; }
+  .lb-seat .dir-badge.mini { width: 15px; height: 15px; font-size: 9px; line-height: 15px; }
+
+  #lb-status, .lb-status { font-size: 10px; min-height: 12px; margin-top: 3px; }
+  #room-status { font-size: 10px; }
+
+  .host-controls { padding: 3px 8px; gap: 4px; }
+  .host-btn { padding: 4px 8px; font-size: 10px; border-radius: 6px; }
+  .lb-host-btn { padding: 4px 8px; font-size: 10px; }
+
+  /* ② 俱乐部详情：左右两栏 —— net3d.html 已把「俱乐部·成员」组和「牌桌」组各包进
+     一个 .club-col，这里只管把两栏并排。子元素以后再怎么加也不会挤垮网格：
+     旧版是 4 行 × 2 列 + grid-auto-flow:column 的**定长**网格，后来新加的
+     rule-details / status-club 溢出到隐式第三列，把两个 1fr 列压成 0px ——
+     竖屏手机上整页被压成「一个字宽的竖条」（老吴 2026-10-24 报障）。 */
+  #club-view {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 4px 14px;
+    align-items: start;
+  }
+  /* ❗给了 `display` 就必须同时补 `[hidden]` 规则（同 `#waiting` 那个坑）：
+     浏览器默认的 `[hidden]{display:none}` 是 **UA 样式**，会被作者样式的 `display:grid` 压过 →
+     `#club-view` 明明带着 `hidden` 却照样排成两栏冒出来，一进「登录页 / 俱乐部列表 / 牌桌大厅」
+     就多出一整块俱乐部详情。
+     通用不变量已进 `tools/viewport-check.mjs`（查「带 hidden 却 display≠none 且尺寸>0」）——
+     这条检查当场逮住过 `#waiting`，这里是第二次。 */
+  #club-view[hidden] { display: none; }
+
+  /* 全屏遮罩（「正在发牌…」）横屏不需要那么大的留白 */
+  #waiting { padding: 10px; gap: 6px; font-size: 12px; }
+  #waiting .w-big { font-size: 17px; letter-spacing: 1px; }
+  #waiting .w-sub { font-size: 11px; max-width: 78vw; line-height: 1.4; }
+}
+
+/* ≤420：真机横屏高度（360/375/393/412）再压一档，逻辑与 style.css 同。
+   （同上：纯横屏，竖屏臂已于 2026-10-24 移除） */
+@media (orientation: landscape) and (max-height: 420px) {
+  .lb-head { margin-bottom: 4px; }
+  .lb-head h1 { font-size: 13px; }
+  .lb-card { padding: 5px 8px 6px; margin-bottom: 5px; }
+  .lb-card h2 { font-size: 11px; margin-bottom: 4px; }
+  .lb-sub { font-size: 9px; margin: -2px 0 4px; }
+  .lb-form { gap: 4px; margin-top: 4px; }
+  .lb-form input, .lb-form select { padding: 3px 6px; font-size: 10px; }
+  .lb-btn { padding: 3px 8px; font-size: 10px; }
+  .lb-item { padding: 4px 7px; }
+  .lb-item .lb-item-title { font-size: 10px; }
+  .lb-item .lb-item-meta { font-size: 9px; }
+  .lb-seat { padding: 3px 5px; }
+  .lb-seat .lb-seat-top { font-size: 10px; }
+  .lb-seat .lb-seat-meta { font-size: 9px; }
+  .host-controls { padding: 2px 6px; gap: 3px; }
+  .host-btn { padding: 3px 6px; font-size: 9px; }
+  .lb-host-btn { padding: 3px 6px; font-size: 9px; }
+
+  /* 玩法规则面板横屏压一档：缩字号、行距、控件 */
+  .rule-details { margin-top: 5px; padding: 2px 7px 6px; border-radius: 8px; }
+  .rule-details > summary { font-size: 11px; padding: 2px 0; }
+  .rule-group { margin-top: 3px; }
+  .rule-group > legend { font-size: 10px; }
+  .rule-row { font-size: 10px; padding: 1px 0; }
+  .rule-row input[type='number'] { width: 48px; padding: 2px 4px; font-size: 10px; }
+  .rule-row select { padding: 2px 4px; font-size: 10px; }
+}
+
+/* 旋转中的牌桌（竖屏手机 + html.in-play）仍要吃到横屏档里**唯一的游戏内**样式：
+   #room-status 缩字号 —— 上面两档已收窄为纯横屏，这条单独门控补上。 */
+@media (orientation: portrait) and (pointer: coarse) {
+  html.in-play #room-status { font-size: 10px; }
+}
+
+/* ---------------- 牌局回放 ---------------- */
+
+/* 回放播放器：直接复用 #play 的 2D 牌桌骨架（3D 页面也切成 2D，保证四家明牌可读） */
+body.replay-mode #app {
+  max-width: none;
+  padding: 0;
+  overflow: hidden;
+}
+body.replay-mode #play {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  padding: 0 10px 10px;
+  box-sizing: border-box;
+}
+/* 回放布局 = 正常对局布局（老吴 2026-10-24）：顶栏照常显示；3D 页面回放也走 3D 桌面。
+   唯一保留的差异：托管控件不出现（回放没有可执行动作）。
+   结算弹窗（#settle）在回放「播完一把」时改为**只读汇总**弹出（2026-10-29 新增）：
+   由 render.js 的 renderSettle() 在 state.replay 下按 phase==='settled' 显示，按钮换成「关闭」，
+   本身不可执行动作，故不再在此处强行隐藏。 */
+body.replay-mode:not(.mode-3d) #table { display: grid !important; flex: 1 1 auto; min-height: 0; }
+/* 3D 页（mode-3d）回放时 2D 表面保持隐藏 —— 由 net3d.css 的 #table{display:none} 接管 */
+body.replay-mode #host-controls { display: none !important; }
+
+/* 头像选择器 + 座位头像（老吴 2026-10-24） */
+.avatar-picker {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, 40px);
+  gap: 4px;
+  margin: 6px 0;
+  max-height: 300px;
+  overflow-y: auto;
+  justify-content: center;
+}
+.avatar-opt {
+  width: 40px; height: 40px; line-height: 1;
+  border: 2px solid transparent; border-radius: 8px; cursor: pointer;
+  background: rgba(255,255,255,.08); padding: 1px;
+  overflow: hidden;
+}
+.avatar-opt img { width: 100%; height: 100%; object-fit: cover; display: block; border-radius: 6px; }
+.avatar-opt.picked { border-color: #ffd75e; background: rgba(255,215,94,.18); }
+.lb-avatar { margin-right: 3px; }
+
+
+#replay-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  flex: 0 0 auto;
+  margin: 6px 0 8px;
+  padding: 6px 8px;
+  border-radius: 10px;
+  background: rgba(7, 43, 31, 0.92);
+  color: #eaf7f0;
+  font-size: 12px;
+}
+#replay-bar[hidden] { display: none !important; }
+#replay-bar .rp-main {
+  flex: 1 1 240px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#replay-bar .rp-main b {
+  margin-right: 6px;
+  color: #f0c96a;
+}
+#replay-bar .rp-tools {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+#replay-bar .lb-btn {
+  padding: 5px 9px;
+  font-size: 12px;
+}
+#replay-bar .rp-seat { white-space: nowrap; }
+#replay-bar select {
+  max-width: 130px;
+  padding: 4px 6px;
+  border: 1px solid rgba(255,255,255,0.28);
+  border-radius: 6px;
+  background: rgba(255,255,255,0.12);
+  color: #fff;
+  font-family: inherit;
+  font-size: 12px;
+}
+#replay-bar .rp-step {
+  min-width: 54px;
+  text-align: center;
+  color: #c8e7d8;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 回放列表弹窗 */
+.rp-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px;
+  background: rgba(0, 0, 0, 0.55);
+}
+.rp-overlay[hidden] { display: none !important; }
+.rp-card {
+  width: min(680px, 100%);
+  max-height: 88dvh;
+  overflow: auto;
+  padding: 14px;
+  border-radius: 12px;
+  background: var(--panel);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+}
+.rp-list-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.rp-list-head h2 {
+  margin: 0;
+  font-size: 15px;
+  color: var(--felt-dark);
+}
+.rp-list-body { display: flex; flex-direction: column; gap: 8px; }
+.rp-item {
+  display: block;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fcfdfc;
+  color: var(--ink);
+  text-align: left;
+  font-family: inherit;
+  cursor: pointer;
+}
+.rp-item:hover { border-color: #a9d9c1; background: #f6fbf8; }
+.rp-more { width: 100%; margin-top: 2px; }
+.rp-item-title {
+  font-size: 14px;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rp-item-meta {
+  margin-top: 3px;
+  font-size: 12px;
+  color: #7a8a83;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rp-scores {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+.rp-score {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: #eef2f0;
+  color: #5b6b64;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.rp-score.pos { background: #e8f7ee; color: #19724a; }
+.rp-score.neg { background: #fff0ed; color: #ad3d30; }
+.rp-back { align-self: flex-start; }
+.rp-session-head {
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #f7faf8;
+}
+.rp-session-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #3f5149;
+}
+.rp-section-label {
+  margin-top: 4px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #7a8a83;
+}
+.rp-hand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.rp-hand-main { flex: 1 1 auto; min-width: 0; }
+.rp-hand-scores {
+  flex: 0 0 auto;
+  justify-content: flex-end;
+  max-width: 55%;
+  margin-top: 0;
+}
+@media (max-width: 520px) {
+  .rp-hand { flex-direction: column; align-items: stretch; }
+  .rp-hand-scores { max-width: none; justify-content: flex-start; }
+}
+
+/* 大厅换头像弹层（老吴 2026-10-25）：点头像打开，登录后随时可换 */
+.avatar-pop {
+  position: fixed;
+  top: 40px;
+  right: 8px;
+  z-index: 85;
+  background: #0d3b28;
+  border: 1px solid rgba(255, 255, 255, .22);
+  border-radius: 10px;
+  padding: 8px 10px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, .45);
+}
+.avatar-pop[hidden] { display: none !important; }
+.lb-avatar-hint { font-size: 11px; color: rgba(255,255,255,.75); margin-bottom: 4px; }
+#whoami { cursor: pointer; }
+
+.lb-avatar-img { height: 22px; width: 22px; border-radius: 4px; object-fit: cover; vertical-align: middle; margin-right: 4px; }
+
+/* 柒鞗會 3D logo 卡（老吴 2026-10-25）：登录页居中展示，替换「武汉红中赖子杠/网络对战」文字 */
+/* 登录页 hero（老吴 2026-10-25）：横版 logo 整卡做背景、表单浮于其上。
+   手机竖屏：背景 cover 铺满（取卡面中央金字区），表单贴底部；
+   电脑：背景 3:2 居中满高，表单落在卡面下沿（不遮「柒鞗會」主体字）。 */
+.auth-hero {
+  position: relative;
+  overflow: hidden;
+  padding: 0;
+  border-radius: 14px;
+  min-height: 340px;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+}
+.auth-hero .auth-bg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: 50% 38%; /* 取卡面中上部（金字主体），表单压在深色下沿 */
+  z-index: 0;
+}
+.auth-hero .auth-panel {
+  position: relative;
+  z-index: 1;
+  padding: 14px 16px 16px;
+  background: linear-gradient(to top, rgba(5, 26, 17, .9) 0%, rgba(5, 26, 17, .72) 62%, rgba(5, 26, 17, 0) 100%);
+}
+.auth-hero .auth-panel h2 { color: #fff; margin: 0 0 8px; }
+.auth-hero .lb-form input,
+.auth-hero .lb-form button { background: rgba(8, 38, 26, .82); }
+/* 输入框文字/占位符/边框用浅色（老吴 2026-10-28：深绿底上黑字看不见）——
+   上一版只改了背景没改 color，输入的字仍是 var(--ink) 近黑色，等于隐形 */
+.auth-hero .lb-form input,
+.auth-hero .lb-form select {
+  color: #eafff2;
+  border-color: rgba(234, 255, 242, .32);
+}
+.auth-hero .lb-form input::placeholder {
+  color: rgba(234, 255, 242, .55);
+}
+/* 登录输入框无条件 16px（老吴 2026-10-24）：iOS 聚焦自动放大以「聚焦时字号<16px」为触发
+   条件，这条不依赖 (pointer:coarse) 媒体查询命中，任何设备进登录页都不会触发缩放。 */
+.auth-hero .lb-form input,
+.auth-hero .lb-form select { font-size: 16px; }
+.auth-hero .lb-status { color: #eafff2; }
+/* ⚠️ 必须显式写 `[hidden]`（同 #waiting / #club-view 踩过的坑）：
+   `.auth-hero { display:flex }` 是作者样式，会压过浏览器默认的 `[hidden]{display:none}`
+   ⇒ 登录成功切到俱乐部页后，整块 logo hero 并没有隐藏、堆在列表上方占满首屏，
+   俱乐部信息被顶到页面下方要不停下拉（老吴 2026-10-24 实测报告）。 */
+#auth-view[hidden] { display: none !important; }
+
+/* 竖屏手机（触屏）：hero 满屏、logo 等比完整展示（老吴 2026-10-24 手机验收）。
+   横版 hero（3:2）进竖屏若继续 cover，「柒鞗會」金字宽于屏宽、必然被裁掉两侧 ——
+   改为「模糊底 + 清晰 logo」两层：::before 用同图 cover+blur 铺满当背景（颜色天然同源），
+   .auth-bg 改 contain 完整显示卡面，表单沉底。
+   ❗只对触屏（pointer:coarse）生效：桌面浏览器开竖窄窗（如应用内置侧栏）维持居中卡片样式。
+   横屏/桌面维持原来的 cover 单层方案。 */
+@media (orientation: portrait) and (pointer: coarse) {
+  body.auth-open #app { padding: 0; }         /* 顶栏/标题行已 display:none，去边距即全屏 */
+  .auth-hero {
+    min-height: 100dvh;
+    margin: 0;
+    border-radius: 0;
+    box-shadow: none;
+    background: #06231a;                       /* 模糊底图加载前/失败时的兜底色 */
+  }
+  .auth-hero::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    background: url('/logo-card/hero.webp') center / cover no-repeat;
+    filter: blur(22px) brightness(.72) saturate(1.05);
+    transform: scale(1.15);                    /* 放大压住 blur 的软边 */
+  }
+  .auth-hero .auth-bg {
+    z-index: 1;                                /* 压在模糊底之上（与 panel 同层，DOM 靠后） */
+    inset: 0 5%;                               /* 左右各留 5%：金字两侧不贴屏幕边（横图自带满幅排版） */
+    width: 90%;
+    object-fit: contain;
+    object-position: 50% 30%;                  /* logo 带落在上三分之一 */
+  }
+  .auth-hero .auth-panel {
+    background: linear-gradient(to top, rgba(4, 18, 11, .93) 0%, rgba(4, 18, 11, .78) 70%, rgba(4, 18, 11, 0) 100%);
+  }
+}
+/* 兜底：旧类名（logo-frame 已不再用于登录页） */
+.logo-frame { display: none; }
+/* 登录页：logo 即门面 —— 整个顶栏与大厅标题行**收起**（老吴 2026-10-25 背景 hero 版）。
+   登录页没有「高度恒定」约束（无牌桌），直接 display:none 干净利落；
+   登录成功离开 auth 视图即恢复，其它页面不受影响。 */
+body.auth-open .topbar,
+body.auth-open .lb-head { display: none; }
+
+.st-flag.bonus-gain { color: #1f9d5b; border-color: rgba(31, 157, 91, .5); background: rgba(31, 157, 91, .12); }
+.st-flag.bonus-pay { color: #c0392b; border-color: rgba(192, 57, 43, .5); background: rgba(192, 57, 43, .1); }

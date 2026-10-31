@@ -1,0 +1,1756 @@
+/* 武汉红中赖子杠 · 单机前端样式（移动端优先，桌面也好看） */
+
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+:root {
+  --felt: #1f7a4d;          /* 牌桌绿 */
+  --felt-dark: #176040;
+  --panel: #ffffff;
+  --ink: #1a1a1a;
+  --honor: #c0392b;         /* 字牌红 */
+  --wild: #e8a317;          /* 癞子金 */
+  --skin: #2f6fdb;          /* 皮子蓝（红中/皮子角标，与 3D 贴图同色；角标无文字） */
+  --line: #e2e2e2;
+  --dir-e: #c0392b;         /* 东 */
+  --dir-s: #2c7be5;         /* 南 */
+  --dir-w: #7d5ba6;         /* 西 */
+  --dir-n: #1f7a4d;         /* 北 */
+
+  /* ---- 商业麻将风格（老吴 2026-10-03「照参考图改界面」）----
+     仿的是参考图的三观感：深绿台呢、台面暗纹、牌有厚度。
+     ❗一律**只改颜色/阴影/纹理，绝不动任何盒模型与布局** ——
+        页面高度固定（见下面 #app/#table 的硬约定）不能被这次改版破坏。 */
+  --felt-deep: #0d5137;     /* 台呢深色（暗纹与渐变端） */
+  --felt-soft: #17654a;     /* 台呢亮色（中央受光） */
+  --tile-thick: 3px;        /* 牌面下方厚度（模拟侧面） */
+  --avatar-size: 21px;      /* 头像直径（= .dir-badge，**不得大于它**，见 .seat-head 说明） */
+}
+
+/* ------------------------------------------------------------------ */
+/* 头像（参考图右上角那种圆形头像）· 老吴 2026-10-03                    */
+/* ------------------------------------------------------------------ */
+/* ❗高度固定红线：`.dir-badge` 已经是 21px 圆，`.seat-head` 的行高由它撑到 21px。
+   头像**必须 ≤ 21px**，否则上/下两家（位于 grid 的 `auto` 行）的 head 变高
+   → `#table` 变高 → 整页抖动。左右两家在 `minmax(0,1fr)` 中间行里且自身可滚，
+   变高不顶桌子，但为一致也用同一尺寸。 */
+.avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--avatar-size);
+  height: var(--avatar-size);
+  min-width: var(--avatar-size);
+  border-radius: 50%;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
+  color: #fff;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, .35);
+  flex: 0 0 auto;
+  overflow: hidden;
+  box-shadow: 0 0 0 1.5px rgba(255, 255, 255, .85), 0 1px 2px rgba(0, 0, 0, .35);
+  user-select: none;
+}
+/* ⚠️刻意**不用**方位色：那会让头像和旁边的 `.dir-badge` 长得一模一样，
+   截图里就是「红东 + 蓝东」两个圆牌并排，看着像重复信息。
+   方位由 dir-badge 独占表达；头像只负责「这是谁」，所以走中性色。 */
+.avatar.av-1 { background: linear-gradient(150deg, #6b7a8f, #48566a); }
+.avatar.av-2 { background: linear-gradient(150deg, #7a6b9f, #56487a); }
+.avatar.av-3 { background: linear-gradient(150deg, #5f8a7a, #3f6858); }
+.avatar.av-4 { background: linear-gradient(150deg, #6f7f8c, #4d5b66); }
+.avatar.av-0 { background: linear-gradient(150deg, #e8a317, #b87d09); }  /* 自己：癞子金 */
+
+/* 座位累计战绩分（真实数据：matchStats 的本场净分，不是假金币） */
+.seat-score {
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
+  padding: 1px 5px;
+  border-radius: 8px;
+  white-space: nowrap;
+  flex: 0 0 auto;
+  background: #eef1f4;
+  color: #7a7a7a;
+}
+.seat-score.pos { background: #fdecec; color: #c0392b; }  /* 红涨 */
+.seat-score.neg { background: #e9f6ee; color: #1f7a4d; }  /* 绿跌 */
+/* 一把未打：徽章**占位但不可见** —— 用 visibility 而不是 display:none，
+   这样座位行的宽高与「有分数时」完全一致（高度固定红线），只是不显示空标签。 */
+.seat-score.is-empty { visibility: hidden; }
+
+/* 台呢（老吴 2026-10-03「桌面改成图片模式」· 背景层）：
+   底图换成**真实绿绒台呢图片**（`--felt-bg` 来自 tools/fetch-felt.mjs 生成的 assets/felt.css，
+   OpenGameArt 的 green mat texture，CC-BY 4.0，作者 Vircon32），
+   上面再叠一层顶部受光 + 四角暗角，让图片有"灯打在桌中央"的立体感。
+   ⚠️ 纯背景层，**绝不占布局、不影响高度**（"页面高度固定"是硬红线，见顶部注释）。
+   ⚠️ 菱形暗纹去掉了 —— 图片本身已有绒布纹理，再叠 CSS 网格会显得脏、像贴图拼接。
+   ⚠️ 这里**必须**用 `background-color` + `background-image` 分开写，**不许**用 `background` 简写 ——
+      简写会把 background-image 重置成 none。踩过：原来下面有一条
+      `html, body { background: var(--felt) }` 排在这段**之后**，
+      于是上一版的菱形暗纹 + 受光渐变**从来没生效过**（页面一直是纯色，却看着"设计如此"）。
+      现在 html / body 分开，各管各的层，谁也覆盖不到谁。 */
+html {
+  background-color: var(--felt);
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  color: var(--ink);
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif;
+  font-size: 16px;
+  line-height: 1.4;
+  height: 100%;
+  background-color: var(--felt-deep);
+  background-image:
+    /* 菱形织纹（2026-10-24 美化）：绿绒上极淡的两向斜线，纯绘制层，不改布局 */
+    repeating-linear-gradient(45deg, rgba(255, 255, 255, .026) 0 1.5px, rgba(255, 255, 255, 0) 1.5px 12px),
+    repeating-linear-gradient(-45deg, rgba(6, 42, 29, .045) 0 1.5px, rgba(6, 42, 29, 0) 1.5px 12px),
+    /* 顶部受光 */
+    radial-gradient(ellipse at 50% 38%, rgba(23, 101, 74, .34) 0%, rgba(13, 81, 55, 0) 62%),
+    /* 四角暗角（把注意力压向中央牌河） */
+    radial-gradient(ellipse at 50% 42%, rgba(13, 81, 55, 0) 52%, rgba(6, 42, 29, .42) 100%),
+    /* 底图：绿绒台呢（CC-BY 4.0, Vircon32）。cover 铺满，零接缝。 */
+    var(--felt-bg);
+  background-size: auto, auto, 100% 100%, 100% 100%, cover;
+  background-position: center, center, center, center, center;
+  background-repeat: repeat, repeat, no-repeat, no-repeat, no-repeat;
+  background-attachment: fixed;
+}
+
+/* ❗老吴 2026-10-01：「页面的高度总在变化，我需要固定」。
+   之前 `#app` 只有 `min-height`，**高度完全跟着内容走** —— 而
+     · 「我的座位」里的操作条（吃/碰/杠/胡/过）每回合出现又消失，
+     · 牌河每打一张就长高一行，
+     · 能胡时还会多一条 `.win-prompt` 横幅
+   于是整张桌子的下边缘、连带我的手牌**一直在上下跳**。
+   改成「应用外壳」：`#app` 高度钉死一屏，`#table` 吃掉 topbar 以下的全部高度，
+   桌面三行改成 `auto / minmax(0,1fr) / auto` ⇒ **富余高度全被中间行吸收**，
+   我的座位（第三行）钉在底部 ⇒ 手牌位置恒定不动。
+   `overflow-y: auto` 只是兜底：窗口极端矮时还能滚，不至于把内容裁掉。 */
+#app {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 10px 12px 24px;
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  /* 交叉轴铺满：net3d 已放开 #app 宽度上限（老吴 2026-10-25 大厅撑满），
+     flex 列的 align-items 默认 center 会把 #lobby 收缩成内容宽 —— 显式 stretch。 */
+  align-items: stretch;
+  overflow-y: auto;
+}
+
+/* 顶部标题栏 */
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.topbar h1 {
+  font-size: 18px;
+  margin: 0;
+  color: #fff;
+  letter-spacing: 1px;
+  white-space: nowrap;      /* 标题别换行（换行会把顶栏撑高） */
+}
+/* ❗老吴 2026-10-03：座位行原来在 390 窄屏会绕成 3 行，把顶栏顶高 40px。
+   改成**恒 1 行 + 省略号** —— 既省出 40px 高度，也顺手加固「高度固定」。 */
+.topbar .sub {
+  font-size: 12px;
+  color: #d8f3e3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+.topbar > div:first-child { min-width: 0; }   /* 允许收缩，否则 nowrap 会被 flex 撑破 */
+.topbar-btns { display: flex; gap: 6px; flex: 0 0 auto; }
+
+#tileskin {
+  background: #fff;
+  color: var(--felt-dark);
+  border: none;
+  border-radius: 8px;
+  padding: 8px 6px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  max-width: 82px;
+}
+#tileskin:active { transform: scale(0.96); }
+#newgame, #rivermode, #statsbtn {
+  background: #fff;
+  color: var(--felt-dark);
+  border: none;
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+/* 始终占位：未结算/未听牌/无战绩数据时置灰禁用，避免顶栏高度随按钮出现而抖动（老吴 2026-10-01） */
+#exitgame {
+  background: #b23a34;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 8px 11px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+#newgame:disabled, #tenpaibtn:disabled, #statsbtn:disabled, #exitgame:disabled { opacity: .4; cursor: default; }
+#rivermode { background: rgba(255,255,255,0.82); font-weight: 600; }
+#newgame:active, #rivermode:active, #exitgame:active { transform: scale(0.96); }
+
+/* ------------------------------------------------------------------ */
+/* 牌桌：四方位环形排布                                                 */
+/*   top = 对家 · left = 上家 · right = 下家 · bottom = 你（永远在下方）   */
+/* ------------------------------------------------------------------ */
+
+#table {
+  display: grid;
+  gap: 8px;
+  /* 吃掉 topbar 以下的全部高度（配合 #app 的 flex 列）→ 整页高度固定 */
+  flex: 1 1 auto;
+  /* ❗必须：flex 子项默认 `min-height:auto` 不肯低于内容高度，
+     不写这句中间行的 `minmax(0,1fr)` 就压不下去，牌桌又会被内容撑高。 */
+  min-height: 0;
+  grid-template-columns: 78px minmax(0, 1fr) 78px;
+  /* ❗「高度固定」的核心：中间行 `minmax(0,1fr)` ——
+     富余高度全部由它吸收，它又能被压到 0，所以
+     上家/下家副露变多、牌河变长、操作条出现，**只改变这一行**，推不动整张桌子。 */
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-areas:
+    "top    top    top"
+    "left   center right"
+    "bottom bottom bottom";
+}
+
+.seat {
+  background: rgba(255,255,255,0.92);
+  border-radius: 10px;
+  padding: 7px 8px;
+  border: 2px solid transparent;
+  transition: border-color .15s, box-shadow .15s;
+  min-width: 0;
+}
+.seat.active {
+  border-color: var(--wild);
+  box-shadow: 0 0 0 3px rgba(232,163,23,0.28);
+}
+/* ❗老吴 2026-10-01「高度要固定」：中间行现在是**定高**的，侧家副露一多就会超出这一行。
+   给侧家自己开滚动，让超出部分在座位内部消化 —— 而不是把整张牌桌顶高。
+   （副露仍是「一副副往下摞」，只是摞到座位底就在座位里滚。） */
+.seat-left, .seat-right { min-height: 0; overflow-y: auto; }
+.seat-top { min-height: 0; }
+.seat-bottom { min-height: 0; }
+.seat-top { grid-area: top; }
+.seat-left { grid-area: left; }
+.seat-right { grid-area: right; }
+.seat-bottom { grid-area: bottom; background: rgba(255,255,255,0.96); }
+
+/* 方位徽章（东南西北） */
+.dir-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 21px;
+  height: 21px;
+  border-radius: 50%;
+  background: var(--felt-dark);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
+  flex: 0 0 auto;
+}
+.dir-badge.dir-东 { background: var(--dir-e); }
+.dir-badge.dir-南 { background: var(--dir-s); }
+.dir-badge.dir-西 { background: var(--dir-w); }
+.dir-badge.dir-北 { background: var(--dir-n); }
+
+.seat-head {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: #333;
+}
+/* ❗老吴 2026-10-03「高度固定」加固：上/下两家在 grid 的 `auto` 行，
+   head 一旦换行就会把 #table 顶高 → 整页抖动。这里锁死不换行，
+   名字过长用省略号（原来靠 wrap 兜底，现在改成 ellipsis 兜底，高度恒为一行）。 */
+.seat-top .seat-head, .seat-bottom .seat-head { flex-wrap: nowrap; }
+.seat-top .seat-head .who, .seat-bottom .seat-head .who {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* 头像+昵称+分数 合成一格：横排时是一个 flex item（内部不换行），
+   侧栏 column 时内部可换行 —— 两种走向都不增加 head 的行数上限。 */
+.seat-id {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  flex: 0 1 auto;
+}
+.seat-head .who { font-weight: 800; color: #111; }
+.seat-head .meta { color: #666; font-size: 11px; }
+.seat-head .turn-dot { color: var(--wild); font-weight: 800; font-size: 11px; }
+.seat-head .flag {
+  font-size: 10px;
+  background: #eef4fb;
+  border: 1px solid #c7dbf0;
+  color: #1f4e79;
+  border-radius: 4px;
+  padding: 0 4px;
+}
+
+/* 左/右两家的牌面竖着堆，窄栏里更省地方 */
+.seat-left .seat-head, .seat-right .seat-head { flex-direction: column; align-items: flex-start; gap: 2px; }
+/* 侧栏只有 78px 宽，头像那一格允许换行（头像独占一行、名字+分数另起一行），
+   否则「头像+名字+分数」一行会被挤爆或撑出横向滚动。 */
+.seat-left .seat-id, .seat-right .seat-id { flex-wrap: wrap; max-width: 100%; gap: 3px; }
+/* 侧栏只有 78px：累计分徽章另起一行已经够占地方了，别再叠第三行 */
+.seat-left .seat-score, .seat-right .seat-score { padding: 1px 4px; }
+.seat-left .seat-body, .seat-right .seat-body { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
+
+.seat-top .seat-body, .seat-bottom .seat-body { margin-top: 5px; }
+
+/* 吃碰杠单独放在一个区，置于手牌上方（老吴 2026-10-02：不要堆在一起） */
+/* 老吴 2026-10-26 修复：侧家 3D 立牌墙（scaleY 2.4 + origin bottom）会向上长出约 25px，
+   而 `.hand-backs` 的 perspective 自带 stacking context，会画在副露区之上 ⇒ 副露被「手牌墙」
+   盖住、看不清（单列副露几乎整片被遮）。这里给副露区建立定位并抬到 z-index:1，补底色遮住
+   墙顶溢出，确保副露始终可见。不改 3D 角度（那套是反复截图调过的）。 */
+.melds-zone { margin-bottom: 5px; min-width: 0; position: relative; z-index: 1; background: rgba(255,255,255,0.92); }
+.melds-row { display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; }
+.seat-left .melds-row, .seat-right .melds-row { flex-direction: column; }
+
+/* 手牌区：按方位真实排成一行（上/下=横排；左/右=竖排），不换行（老吴 2026-10-02） */
+.hand-zone { min-width: 0; }
+.seat-top .hand-zone, .seat-bottom .hand-zone { display: flex; flex-direction: row; flex-wrap: nowrap; overflow-x: auto; }
+.seat-left .hand-zone, .seat-right .hand-zone { display: flex; flex-direction: column; flex-wrap: nowrap; overflow: visible; }
+
+/* 对家暗牌：以「牌背」展示（只看张数，不露牌面，老吴 2026-10-01） */
+.hand-backs { display: flex; gap: 1px; min-width: 0; }
+.seat-top .hand-backs, .seat-bottom .hand-backs { flex-direction: row; flex-wrap: nowrap; }
+/* ❗老吴 2026-10-01：侧家 13 张牌背「竖排一列」要 246px 高，把 `#table` 的中间行顶到 390px，
+   连带把「我的手牌」挤到整张桌子的最下面（他自己提的「本人的牌要往上挪」根因就在这）。
+   改成 **限高 + 竖排换列**：`flex-direction: column` 配 `flex-wrap: wrap` + `max-height`，
+   13 张会自动拆成**两列**——张数一个不少、方向仍然是竖着排，高度直接砍半（246 → 140）。
+   （`column` + `wrap` 必须有确定高度才会换列，所以 `max-height` 不能省。） */
+.seat-left .hand-backs, .seat-right .hand-backs {
+  flex-direction: column; flex-wrap: wrap;
+  align-content: flex-start;
+  max-height: 140px;
+}
+.hand-backs .tile { flex: 0 0 auto; }
+.hand-backs .tile-face { height: 22px; }
+.seat-left .hand-backs .tile-face, .seat-right .hand-backs .tile-face { height: 18px; }
+
+/* ------------------------------------------------------------------ *
+ * 三家暗牌「真 3D 侧立」（老吴 2026-10-03 参照图：牌是立着的矮墙，不是平铺）
+ *
+ * 为什么能做到「真 3D」又不破高度固定 —— 这是本段最关键的设计约束：
+ *
+ *   **一律用 `transform`，绝不改 `height` / `width` / `margin` / `padding`。**
+ *   `transform` 是**绘制层**变换，不参与布局计算：盒子占位仍是原来的 22px / 18px，
+ *   于是「整页高 / 牌桌高 / 座位下沿 / 手牌下沿」四个硬指标一个像素都不会动。
+ *   （改 `height` 就完蛋了 —— 那正是老吴 2026-10-01 花一整天在修的东西。）
+ *
+ *   反过来，`transform-origin: center bottom` + `rotateX` 会让牌**绕底边翻起来**，
+ *   视觉上牌面朝上倾斜 ⇒ 看到的是牌的**上沿 + 一部分牌面**，正是参考图那个「矮墙」效果。
+ *
+ * 为什么侧家要 `rotateY` 而不是 `rotateX`：
+ *   左/右两家在屏幕两侧，牌要「朝桌心立起来」才符合透视 ⇒ 绕**竖轴**转。
+ *   宽度视觉上会被压窄（`rotateY` 压缩 x 方向），这正是立牌的观感；
+ *   但因为不用改 `width`，占位不变，布局零影响。
+ *
+ * ❗角度是**反复截图调出来的**，别凭想象改：
+ *   `rotateY` 一开始给 58°，结果 18px 宽的牌被压成 **2~3px 的竖直细线**，
+ *   完全读不出「立着的牌」是什么（第一次就这么翻车了 —— 牌变成一排绿竖线）。
+ *   降到 34° 后，压缩后仍保留约 8~10px 可辨识宽度 —— 看着是「侧立的牌」而不是「一根线」。
+ *   上家用 `rotateX(38°)`，比侧家更缓，因为上家是俯视角度，天然就能看到更多牌面。
+ *
+ * ⚠️ 透视量要克制：`perspective` 给小了会像贴纸，给大了会看出明显的近大远小变形。
+ *   下面用的值经真机截图核对，在 844×390 / 390×860 两档都自然。
+ * ⚠️ `perspective` 挂在 `.hand-backs` 上（**父容器**）而不是 `.tile-face` 上 ——
+ *   每张牌各设 perspective 会让 13 张牌各自畸变，看起来像哈哈镜；
+ *   挂在共同祖先上，整排牌共享**同一个消失点**，才是真实透视。 */
+.seat-top .hand-backs,
+.seat-left .hand-backs,
+.seat-right .hand-backs {
+  /* 三家共享的 3D 上下文：牌面 + 厚度 + 桌面地面 */
+  perspective: 420px;
+  perspective-origin: 50% 42%;
+}
+/* 对家（上）：牌面朝上翻 ⇒ 看到上沿。
+ *
+ * ❗❗ 缩放倍数**不能拍脑袋，必须按「牌宽 vs 牌间距」反解**（老吴 2026-10-03 踩过两次）：
+ *
+ *   1) 横屏档把牌压到 **14px 高**，3D 立牌要靠「牌有高度」才立得住 ⇒ 必须先 scaleY 放大。
+ *      但一开始就写 `scaleX(1.9)` ⇒ **相邻牌面互相重叠、糊成一条绿棍**。
+ *      实测原因：牌间距（gap:1px ⇒ 节奏 pitch 12.5px）本来只有牌宽的 1.18 倍，
+ *      放大 1.9 倍必然粘连。
+ *   2) 侧家更极端：实测 `pitch 10.9px < 牌宽 16.3px`（**牌本来就故意重叠** 0.669 倍），
+ *      所以侧家**只能缩、不能放** —— 放大的唯一结果是糊。
+ *
+ *   ⇒ 结论：**scaleX ≤ 1.18**（对家）/ **scaleX < 0.67**（侧家）才安全。
+ *   现在取：对家 1.15（略放，翻起来有体积），侧家 0.62（略缩，让旋转后不粘连）。
+ *   `transform: scale() rotate()` 里 scale 在前 rotate 在后（transform 自右向左应用），
+ *   且 scale 只改绘制不改占位 ⇒ 布局零影响。
+ *
+ * ❗纵向（scaleY）可以放大很多，因为**纵向不参与相邻牌的粘连**（排布是横向的）。
+ *   横屏侧栏实测有 186px 高而牌只占 25px ⇒ 纵向有大量空闲。
+ *   这正是参考图那种「一堵矮墙」观感的来源：牌要够高才看得出是立着的。 */
+.seat-top .hand-backs .tile-face {
+  transform: scaleY(2.6) scaleX(1.15) rotateX(28deg);
+  transform-origin: center bottom;
+  transform-style: preserve-3d;
+}
+/* 左家：绕竖轴向桌心转。牌面朝右 ⇒ rotateY 正值。
+ *   ⚠️ 只能**缩**不能放（见上：侧家牌本来就重叠 0.669 倍）。
+ *   缩一点正好腾出间距，旋转后每张牌都分得开。 */
+.seat-left .hand-backs .tile-face {
+  transform: scaleX(0.62) scaleY(2.4) rotateY(28deg);
+  transform-origin: center bottom;
+}
+/* 右家：镜像 ⇒ 朝左转。 */
+.seat-right .hand-backs .tile-face {
+  transform: scaleX(0.62) scaleY(2.4) rotateY(-28deg);
+  transform-origin: center bottom;
+}
+/* 立起来之后，牌背图案会被压得很窄 —— 补一条高光边，模拟牌的上沿受光，
+   让「矮墙」更有体积感。纯 box-shadow，不占布局。
+   ⚠️ 侧家的 inset 高光要**跟着旋转方向走**：左家牌面朝右 ⇒ 受光在左缘，
+   右家反之。反了的话看起来像从桌底打的光。 */
+.seat-top .hand-backs .tile-face {
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, .55),
+    0 var(--tile-thick, 2px) 0 rgba(0, 0, 0, .30),
+    0 calc(var(--tile-thick, 2px) + 2px) 5px rgba(0, 0, 0, .34);
+}
+.seat-left .hand-backs .tile-face {
+  box-shadow:
+    inset 1px 0 0 rgba(255, 255, 255, .42),
+    0 var(--tile-thick, 2px) 0 rgba(0, 0, 0, .30),
+    0 calc(var(--tile-thick, 2px) + 2px) 5px rgba(0, 0, 0, .34);
+}
+.seat-right .hand-backs .tile-face {
+  box-shadow:
+    inset 1px 0 0 rgba(255, 255, 255, .42),
+    0 var(--tile-thick, 2px) 0 rgba(0, 0, 0, .30),
+    0 calc(var(--tile-thick, 2px) + 2px) 5px rgba(0, 0, 0, .34);
+}
+/* ⚠️ 自己的手牌（`.seat-bottom`）**绝不能**进 3D —— 牌面文字一转就读不清了，
+   而且双击出牌的命中区域会跟着偏。对家/侧家只显示牌背，不露牌面，才敢转。 */
+
+/* ❗左右两家是 70px 窄栏（内容宽只有 ~60px），而一副「杠」= 标签 + 4 张牌 ≈ 78px。
+   390 视口实测：副露横向顶穿视口 10px（桌面模式 scrollWidth 400 > innerWidth 390）。
+   两道保险：①「碰/杠/吃」标签独占一行，牌面吃满整栏宽度；② `.meld` 自身可换行（见下）。 */
+.seat-left, .seat-right { padding: 6px 5px; }
+.seat-left .meld, .seat-right .meld { padding: 1px 3px 1px 1px; }
+.seat-left .meld-label, .seat-right .meld-label { flex: 1 0 100%; margin: 0 0 1px; }
+
+/* ------------------------------------------------------------------ */
+/* 中央：公共牌河 + 牌桌信息                                             */
+/* ------------------------------------------------------------------ */
+
+.center {
+  grid-area: center;
+  position: relative;                /* 老吴 2026-10-03：倒计时转盘的定位上下文 */
+  background: rgba(255,255,255,0.95);
+  border-radius: 12px;
+  padding: 8px 9px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  /* ❗老吴 2026-10-01：不让中央卡片被网格行「拉高」。
+     网格项默认 `align-self: stretch`，中央卡片被拉满后多出来的部分
+     全变成牌河里的白斑（实测 390px 的卡片里牌只占 53px）。
+     改成按内容高度、顶对齐 —— 中间行的富余高度就变成留白，**不进牌河**。 */
+  align-self: start;
+  /* 中间行可能被压得很矮（副露多时），允许它压下去、别顶破牌桌 */
+  min-height: 0;
+}
+
+.center-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  align-items: center;
+  font-size: 12px;
+  color: #333;
+  padding-bottom: 5px;
+  border-bottom: 1px dashed var(--line);
+}
+.center-item { display: inline-flex; align-items: center; gap: 3px; }
+.center-item b { color: var(--felt-dark); }
+.center-item .tile-face { height: 26px !important; }
+.tag {
+  display: inline-block;
+  background: var(--wild);
+  color: #3a2a00;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 6px;
+}
+.center-item .dealer-chip { color: #c0392b; font-weight: 800; }
+
+/* ------------------------------------------------------------------ */
+/* 中央倒计时转盘（参考图那个大数字倒计时）· 老吴 2026-10-03            */
+/* ------------------------------------------------------------------ */
+/* ❗**绝对定位、零布局影响**：它是 `.center` 的子元素，但用 `position:absolute`
+   挂在 `.center` 的**右下角**（压住牌河最末一格的右侧空白）—— 不新增网格行、
+   不占文档流高度、不给 `.center-head` 加 padding（加了会让信息 chips 重排、
+   反而可能多出一行）。因此绝不会破坏「页面高度固定」这条硬约定。
+   牌河不可点，故 `pointer-events:none` 只是保险。
+   数据源复用 updateResponseTimer 已有的 responseDeadline（claimTimeoutMs，默认 8 秒）。 */
+.center-dial {
+  position: absolute;
+  bottom: 6px;
+  right: 6px;
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: conic-gradient(var(--wild) calc(var(--dial-deg, 0deg)), rgba(0, 0, 0, .10) 0);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, .22);
+  pointer-events: none;              /* 纯装饰，绝不挡住底下牌的点击 */
+  z-index: 2;
+}
+.center-dial[hidden] { display: none; }
+.center-dial::before {
+  content: '';
+  position: absolute;
+  inset: 4px;
+  border-radius: 50%;
+  background: var(--felt-dark);
+}
+.center-dial b {
+  position: relative;
+  color: #fff;
+  font-size: 19px;
+  font-weight: 800;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.center-dial.warn { animation: dial-pulse .6s ease-in-out infinite alternate; }
+@keyframes dial-pulse {
+  from { box-shadow: 0 2px 6px rgba(0, 0, 0, .22); }
+  to   { box-shadow: 0 0 0 5px rgba(232, 163, 23, .45), 0 2px 8px rgba(0, 0, 0, .3); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .center-dial.warn { animation: none; }
+}
+
+/* 牌河本体：可滚动，避免牌局后半段把布局撑爆。
+   ❗老吴 2026-10-01：「牌河不需要空那么多空间」——原来 `flex: 1 1 auto` 会**吃掉中央卡片的
+   全部剩余高度**（中间行被侧家顶到 390px 时，牌河里其实只有 53px 是牌，另外 180+ 全是空白）。
+   改成 `flex: 0 1 auto`：高度**跟着牌张数走**，不再撑满；上限只是防后半段撑爆。 */
+.river-board {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  flex: 0 1 auto;        /* 按内容高度，不吸收剩余空间 */
+  max-height: 150px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+}
+.river-empty { font-size: 12px; color: #999; padding: 2px 0; }
+
+.river-row { display: flex; align-items: flex-start; gap: 5px; }
+.river-row .river-label {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10px;
+  color: #555;
+  padding-top: 4px;
+  white-space: nowrap;
+}
+.river-tiles { display: flex; flex-wrap: wrap; gap: 3px; min-width: 0; }
+
+/* 牌河里每张牌右上角的方位小字（依次排列模式下用来认是谁打的） */
+.tile .dir-dot {
+  position: absolute;
+  top: -5px;
+  left: -5px;
+  font-style: normal;
+  font-size: 9px;
+  line-height: 1;
+  font-weight: 800;
+  color: #fff;
+  background: #666;
+  border-radius: 5px;
+  padding: 1px 3px;
+  border: 1px solid #fff;
+}
+.tile .dir-dot.dir-东 { background: var(--dir-e); }
+.tile .dir-dot.dir-南 { background: var(--dir-s); }
+.tile .dir-dot.dir-西 { background: var(--dir-w); }
+.tile .dir-dot.dir-北 { background: var(--dir-n); }
+
+/* 最近打出的一张高亮 */
+.tile.last .tile-face { box-shadow: 0 0 0 3px #c0392b, 0 1px 3px rgba(0,0,0,0.35); }
+/* 点了手牌准备打出：牌河里同牌面的牌用金框提示（老吴 2026-10-20） */
+.tile.river-match .tile-face {
+  box-shadow: 0 0 0 2px #f1c40f, 0 0 8px 2px rgba(241, 196, 15, 0.85),
+    0 1px 3px rgba(0,0,0,0.35);
+  transform: translateY(-3px);
+}
+
+/* 牌（真实牌面图形，非汉字） */
+.tile {
+  display: inline-block;
+  position: relative;
+  line-height: 0;
+  user-select: none;
+}
+/* 牌面立体感（老吴 2026-10-03「照参考图改界面」）：
+   参考图的牌有明显的**下缘厚度 + 落地投影**，像一块立在台面上的玉牌。
+   ❗**只能用 box-shadow，绝不能用 border-bottom / padding-bottom** ——
+      `.tile-face` 的 height 是**固定值**（50/30/26/22px），高度恒定检查全靠它；
+      一旦用 border 或 padding 把盒子撑高，牌就会顶高整桌、破坏「高度固定」。
+   投影用两层：紧贴的暗色（厚度侧面）+ 向下扩散的软影（落台面）。 */
+.tile-face {
+  display: block;
+  height: 50px;
+  width: auto;
+  border-radius: 6px;
+  /* 厚度侧面：向下偏移的实色（比牌面略深，像牌的底面） */
+  box-shadow:
+    0 var(--tile-thick) 0 rgba(0, 0, 0, .28),
+    0 calc(var(--tile-thick) + 2px) 4px rgba(0, 0, 0, .32);
+  vertical-align: middle;
+}
+/* 牌越小，厚度按比例收窄（否则 22px 的小牌看着像块砖） */
+.tile.small .tile-face { height: 30px; --tile-thick: 2px; }
+.tile.river .tile-face { height: 26px; --tile-thick: 2px; }
+.tile.tiny .tile-face { height: 22px; --tile-thick: 1.5px; }
+/* 癞子 / 皮子 金/蓝圈（保留原有圈，加厚投影） */
+.tile.wild .tile-face {
+  box-shadow: 0 0 0 2px var(--wild),
+    0 var(--tile-thick) 0 rgba(0,0,0,.28),
+    0 calc(var(--tile-thick) + 2px) 4px rgba(0,0,0,.32);
+}
+.tile.skin .tile-face {
+  box-shadow: 0 0 0 2px var(--skin),
+    0 var(--tile-thick) 0 rgba(0,0,0,.28),
+    0 calc(var(--tile-thick) + 2px) 4px rgba(0,0,0,.32);
+}
+.tile.clickable { cursor: pointer; transition: transform .08s; }
+.tile.clickable:active { transform: translateY(2px); }
+.tile.selected .tile-face {
+  /* 选中：抬起 + 绿框，保留厚度投影（否则抬起后看着是张纸片） */
+  box-shadow: 0 0 0 2px var(--felt),
+    0 calc(var(--tile-thick) + 6px) 0 rgba(0,0,0,.26),
+    0 calc(var(--tile-thick) + 9px) 6px rgba(0,0,0,.34);
+  transform: translateY(-6px);
+}
+/* 刚摸的牌：出牌阶段独立放最右（老吴 2026-10-01 摆布口径） */
+.hand-draw-sep {
+  display: inline-block;
+  width: 2px;
+  align-self: center;
+  height: 40px;
+  margin: 0 8px;
+  background: var(--border, #8a8a8a);
+  opacity: .45;
+  border-radius: 2px;
+}
+.tile.drawn { outline: 2px solid var(--accent, #2d7ff9); outline-offset: 2px; border-radius: 6px; }
+/* 赖 / 皮 角标 */
+/* 角标 = 纯色块，无文字：左上角；癞子红、皮子/红中蓝（老吴 2026-10-22） */
+.badge {
+  position: absolute;
+  top: -7px;
+  left: -7px;
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  background: #1f9d55; /* 癞子：绿底（老吴 2026-10-28 八轮；2D 块小不写字，颜色即信号） */
+  border: 1px solid #fff;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.3);
+}
+.badge.skin { background: #d21f2b; } /* 皮子：红底 */
+.tile.river .badge, .tile.tiny .badge {
+  width: 9px;
+  height: 9px;
+  top: -5px;
+  left: -5px;
+}
+
+/* 副露分组 */
+.meld {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  background: #f2f7f4;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 2px 4px 2px 2px;
+  /* ❗硬保证：副露宽度**永远不得超过容器**。放不开就在自己内部换行，
+     绝不允许顶穿视口（2026-09-30 在 390 视口实测到 10px 横向溢出）。
+     `min-width:0` 同时解掉 flex 项默认的 min-width:auto，否则它宁可撑破也不收缩。 */
+  flex-wrap: wrap;
+  min-width: 0;
+  max-width: 100%;
+}
+.meld-label {
+  font-size: 11px;
+  color: var(--felt-dark);
+  font-weight: 700;
+  margin-right: 2px;
+}
+.seat-left .meld-label, .seat-right .meld-label { font-size: 10px; }
+
+/* 我的手牌 */
+.seat-bottom .me-title {
+  font-size: 13px;
+  color: var(--felt-dark);
+  font-weight: 700;
+  margin: 0 0 4px;
+}
+/* 我的手牌：永远在下方，按方位真实摆成一行（横排，不换行，老吴 2026-10-02） */
+#me-hand { display: flex; flex-wrap: nowrap; gap: 5px; overflow-x: auto; }
+.seat-bottom #me-hand .tile { flex: 0 0 auto; }
+
+/* ------------------------------------------------------------------ */
+/* 控制区                                                              */
+/* ------------------------------------------------------------------ */
+
+/* ❗老吴 2026-10-01：这一块现在是**「我的座位」里的操作条**（手牌正上方），
+   见 `render.js` 的 `renderMySeat` —— 它会把 `#controls` 从 `#app` 挪进 `#seat-bottom`。
+   座位本身是白卡，所以这里给一层浅底 + 描边，才看得出是个独立的操作区。 */
+#controls {
+  background: #f1f7f4;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 8px 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin: 2px 0 6px;
+}
+#controls:empty { display: none; }
+.act-btn {
+  border: none;
+  border-radius: 8px;
+  padding: 9px 14px;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  background: #e7e7e7;
+  color: #333;
+}
+.act-btn:active { transform: scale(0.96); }
+.act-btn.primary { background: var(--felt); color: #fff; }
+.act-btn.win { background: #c0392b; color: #fff; }
+.act-btn.act { background: #2c7be5; color: #fff; }
+.act-btn.ghost { background: #ededed; color: #666; }
+/* 非本家回合：响应按钮常显但置灰、不可点（老吴 2026-10-26 修「碰家考虑时吃按钮消失」） */
+.act-btn.pending { background: #d4d4d4; color: #9a9a9a; opacity: .72; cursor: not-allowed; box-shadow: none; }
+.gang-nodraw {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 7px 9px;
+  border: 1px solid #e4cf88;
+  border-radius: 8px;
+  background: #fff8e1;
+  color: #5a4a12;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+}
+.gang-nodraw input {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: #b8860b;
+  cursor: pointer;
+}
+.win-prompt {
+  width: 100%;
+  box-sizing: border-box;
+  background: #c0392b;
+  color: #fff;
+  font-size: 15px;
+  font-weight: 700;
+  text-align: center;
+  padding: 10px 12px;
+  border-radius: 10px;
+  margin-bottom: 8px;
+  box-shadow: 0 2px 8px rgba(192, 57, 43, 0.35);
+  animation: winPulse 1.1s ease-in-out infinite;
+}
+.win-prompt strong { font-size: 17px; }
+/* 抢杠胡（老吴 2026-10-02）：同样是「能胡」的红色提示 —— 红色 = 胡，不改他的心智模型；
+   只加一道金边区分，因为它是被抢的那家**承包独付**，分值通常最重 */
+.win-prompt-qg {
+  border: 2px solid #ffd166;
+  padding: 8px 10px; /* 补回 border 占掉的 2px，避免换行抖动 */
+}
+@keyframes winPulse {
+  0%, 100% { transform: scale(1); box-shadow: 0 2px 8px rgba(192, 57, 43, 0.35); }
+  50% { transform: scale(1.025); box-shadow: 0 3px 14px rgba(192, 57, 43, 0.55); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .win-prompt { animation: none; }
+}
+.hint {
+  width: 100%;
+  font-size: 13px;
+  color: #555;
+  margin-top: 2px;
+}
+
+/* 胡牌摊牌确认（老吴 2026-10-20）：四家先摊牌，点「确认」后才弹结算页 */
+.reveal-prompt {
+  width: 100%;
+  box-sizing: border-box;
+  font-size: 14px;
+  font-weight: 700;
+  color: #8a5a00;
+  background: #fff6df;
+  border: 1px solid #f0d48a;
+  border-radius: 10px;
+  padding: 8px 12px;
+  margin-bottom: 8px;
+  text-align: center;
+}
+.reveal-prompt.reveal-wait { color: #666; background: #f3f3f3; border-color: #ddd; }
+
+/* 摊牌时别家手牌直接翻正：仍是紧凑小牌，但不再是牌背 */
+.hand-backs.revealed { gap: 0; }
+.hand-backs.revealed .tile.tiny .tile-face { height: 22px; }
+/* 明牌不是牌背：必须撤掉上面那套 3D 立牌 transform。
+   牌背转起来有体积感，但明牌的字被 scale/rotate 后会糊成一片（老吴 2026-10-23）。 */
+.hand-backs.revealed .tile-face {
+  transform: none !important;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, .55),
+    0 var(--tile-thick, 2px) 0 rgba(0, 0, 0, .30),
+    0 calc(var(--tile-thick, 2px) + 2px) 5px rgba(0, 0, 0, .34);
+}
+/* 回放要读四家牌：对家/下家（轮到主视角时在上下）比普通摊牌再大一档。 */
+body.replay-mode .hand-backs.revealed .tile.tiny .tile-face { height: 28px; }
+body.replay-mode .seat-left .hand-backs.revealed .tile.tiny .tile-face,
+body.replay-mode .seat-right .hand-backs.revealed .tile.tiny .tile-face { height: 22px; }
+
+/* 8 秒不响应自动「过」倒计时提示（老吴 2026-10-01） */
+.auto-pass-tip {
+  width: 100%;
+  font-size: 13px;
+  font-weight: 700;
+  color: #b8860b;
+  margin-top: 4px;
+  text-align: center;
+}
+.auto-pass-tip[hidden] { display: none; }
+
+/* ------------------------------------------------------------------ */
+/* 一次性提示（flash）                                                  */
+/* ------------------------------------------------------------------ */
+
+.flash {
+  position: fixed;
+  left: 50%;
+  bottom: 18px;
+  transform: translateX(-50%);
+  z-index: 900;
+  background: rgba(26, 26, 26, 0.88);
+  color: #fff;
+  font-size: 13px;
+  padding: 7px 14px;
+  border-radius: 999px;
+  pointer-events: none;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+}
+.flash[hidden] { display: none; }
+
+/* ------------------------------------------------------------------ */
+/* 结算弹窗（老吴 2026-09-30：展示四家的牌 + 各家番数，不要算番细节）      */
+/* ------------------------------------------------------------------ */
+
+.exit-vote-text {
+  margin: 8px 0 4px;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--felt-dark);
+}
+.exit-note {
+  margin-top: 7px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: #6b7a72;
+}
+.exit-vote-actions {
+  display: flex;
+  gap: 9px;
+  margin-top: 13px;
+}
+.exit-vote-actions button {
+  flex: 1 1 0;
+  border: none;
+  border-radius: 8px;
+  padding: 9px 10px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.exit-btn-agree { background: #2f7d57; color: #fff; }
+.exit-btn-reject { background: #e8e3d8; color: #5d4a3a; }
+.exit-vote-actions button:disabled { opacity: .55; cursor: default; }
+.exit-score-table { margin-top: 8px; }
+.exit-rank-badge {
+  display: inline-block;
+  margin-left: 4px;
+  padding: 0 5px;
+  border-radius: 6px;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 16px;
+  color: #fff;
+  vertical-align: 1px;
+  white-space: nowrap;
+}
+.exit-rank-badge.winner { background: #c0392b; }
+.exit-rank-badge.loser { background: #2f7d57; }
+@media (max-width: 560px) {
+  .exit-score-table th, .exit-score-table td { padding: 4px 2px; font-size: 11px; }
+  .exit-rank-badge { margin-left: 2px; padding: 0 3px; font-size: 9px; line-height: 14px; }
+}
+
+.modal {
+  position: fixed;
+  inset: 0;
+  z-index: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 14px;
+  background: rgba(0, 0, 0, 0.42);
+}
+.modal[hidden] { display: none; }
+.modal-card {
+  width: 100%;
+  max-width: 460px;
+  /* 电脑上放宽（老吴 2026-10-25：统计/弹窗与牌桌一致撑满画面）——手机维持 460 竖版 */
+  /* ⚠️ 2026-10-28 修复：10-25 把 @media 插进本规则体内把块拦腰截断，
+     下面这段声明成了孤儿（白底/内边距/圆角/限高全部失效，弹窗透明、深底上黑字看不见，
+     老吴 15:41 报战绩表 2-4 行透明即此根因）。合并回一个完整规则块。 */
+  max-height: 88vh;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  background: #fff;
+  border-radius: 14px;
+  padding: 14px 14px 12px;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.3);
+}
+@media (min-width: 900px) {
+  .modal-card { max-width: min(900px, 92vw); }
+  /* 结算窗放宽（老吴 2026-10-28）：四家牌面单行不换行，需要更宽的框架 */
+  #settle-card { max-width: min(1100px, 96vw); }
+}
+/* 弹窗底色柔和化（老吴 2026-10-28）：纯白刺眼 → 结算/战绩两张高频弹窗换暖米色（羊皮纸感），
+   与牌桌墨绿/木框同一暖色系；其余低频弹窗（听牌/退出确认等）维持白底不动。 */
+#settle-card, #stats-card { background: #f6f1e6; }
+.modal-card h3 { margin: 0 0 4px; font-size: 17px; color: var(--felt-dark); }
+.st-headline { font-weight: 800; font-size: 15px; color: var(--felt-dark); }
+/* 「本局战况」节标题（老吴 2026-10-28）：四家牌况框架上方 */
+.st-section { font-weight: 800; font-size: 13px; color: var(--felt-dark); margin-top: 8px; }
+.st-sub { font-size: 12px; color: #777; margin-top: 3px; line-height: 1.6; }
+
+/* 四家共一个框架（老吴 2026-10-28）：不再是每家一个盒子，行与行之间用分隔线 */
+.st-list {
+  margin: 10px 0 8px;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fbf7ec;   /* 随卡片换暖米色（老吴 2026-10-28），与卡片 #f6f1e6 拉开一档 */
+  overflow: hidden;
+}
+.st-row { padding: 6px 10px; border-bottom: 1px solid var(--line); }
+.st-row:last-child { border-bottom: none; }
+.st-row.is-me { background: #f4faf6; }
+.st-row.is-winner { background: #fffbe9; }
+
+.st-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.st-head .st-who { font-weight: 800; font-size: 13px; color: #222; }
+/* 结算里的玩家名称（老吴 2026-10-28）：跟在称呼后的小字，长名省略号防撑爆 */
+.st-head .st-name {
+  font-weight: 600;
+  font-size: 12px;
+  color: #555;
+  max-width: 26vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.st-flag {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: #eee;
+  color: #555;
+}
+.st-flag.win { background: #c0392b; color: #fff; }
+.st-flag.size { background: #eef4fb; color: #1f4e79; border: 1px solid #c7dbf0; }
+/* 「未开口」= 玩家状态（和「庄」同一类），不是算番细节 —— 老吴 2026-09-30 拍板
+   「未开口也乘以二」，所以结算里必须能看出谁未开口，否则「6 番为何付 40 分」无从解释。 */
+.st-flag.unopened { background: #fff3e0; color: #8a5300; border: 1px solid #f0d9b5; }
+/* 包胡 / 陪包（老吴 2026-10-30）：责任角色，和「庄 / 赢家 / 未开口」同属玩家状态。
+   ⚠️ 包胡刻意不用红色：它紧挨着「赢家」标签（两者常在同一行出现），两块红并排会分不清
+   「谁赢了」和「谁该独付」。统一用琥珀色系表达「责任」：
+   包胡＝实心深琥珀（责任最重）、陪包＝浅底描边（未下雨的连带责任，弱一档）。 */
+.st-flag.bao-hu { background: #c2691b; color: #fff; }
+.st-flag.pei-bao { background: #fdf0db; color: #9a5a00; border: 1px solid #eccda0; }
+.st-money { margin-left: auto; font-size: 13px; font-weight: 800; color: #666; }
+.st-money.gain { color: #c0392b; }
+.st-money.lose { color: #1f7a4d; }
+
+.st-tiles {
+  display: flex;
+  flex-wrap: nowrap;          /* 老吴 2026-10-28：牌面一律单行，不换行（放得下靠结算窗加宽） */
+  overflow-x: auto;
+  align-items: center;
+  gap: 2px;
+  margin-top: 5px;
+  min-width: 0;
+  scrollbar-width: none;
+}
+.st-tiles::-webkit-scrollbar { display: none; }
+.st-melds { display: inline-flex; flex-wrap: nowrap; gap: 2px; margin-right: 6px; min-width: 0; }
+.st-tiles .tile.st-hu-tile {
+  margin-left: 4px;
+  border-radius: 4px;
+  box-shadow: 0 0 0 2px #d4a017;
+}
+.st-row .meld { gap: 1px; }
+.st-row .meld-label { display: none; }
+
+.st-fan {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin: 0 0 0 4px;   /* 老吴 2026-10-28：并入第一行（.st-head 内），不再独立成行 */
+}
+.st-fan-total {
+  font-weight: 800;
+  font-size: 12px;
+  color: #c0392b;
+  min-width: 34px;
+}
+.st-chip {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: #eef6ee;
+  border: 1px solid #cfe3cf;
+  font-size: 11px;
+  color: #2c5f3f;
+}
+.st-chip.base { background: #fdecea; border-color: #f2b8b1; font-weight: 700; color: #a5281b; }
+.st-none { font-size: 11px; color: #aaa; }
+
+.st-total {
+  text-align: right;
+  font-size: 16px;
+  font-weight: 800;
+  color: #c0392b;
+  margin-top: 2px;
+}
+.st-again {
+  width: 100%;
+  margin-top: 12px;
+  padding: 11px 0;
+  border: none;
+  border-radius: 10px;
+  background: var(--felt);
+  color: #fff;
+  font-size: 15px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.st-again:active { transform: scale(0.98); }
+
+/* ---- 听牌提示（老吴 2026-09-30） ---- */
+#tenpaibtn[hidden] { display: none; }
+.tp-sub {
+  font-size: 12px;
+  color: #777;
+  line-height: 1.6;
+  margin-top: 3px;
+}
+.tp-list {
+  margin: 10px 0 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.tp-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;          /* 窄屏不顶穿：放不下就换行 */
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 7px 9px;
+  background: #fcfcfc;
+}
+.tp-name { font-weight: 700; font-size: 14px; color: var(--felt-dark); }
+.tp-remain {
+  font-size: 13px;
+  font-weight: 700;
+  color: #b3541e;
+  background: #fff3e0;
+  border: 1px solid #f0d9b5;
+  border-radius: 6px;
+  padding: 1px 6px;
+}
+.tp-tags { margin-left: auto; font-size: 12px; color: #666; }
+/* 满手时的分组卡：「打 X → 听 N 张」 + 若干听牌小卡 */
+.tp-row-ready { flex-direction: column; align-items: stretch; gap: 6px; }
+.tp-head { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.tp-discard { font-weight: 700; font-size: 13px; color: var(--felt-dark); }
+.tp-chips { display: flex; flex-wrap: wrap; gap: 5px; }
+.tp-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  padding: 3px 6px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #fff;
+}
+.tp-chip .tp-name { font-size: 12px; }
+.tp-chip .tp-remain { font-size: 11px; padding: 0 4px; }
+.tp-chip .tp-tags { margin-left: 0; font-size: 11px; }
+.tp-close {
+  width: 100%;
+  padding: 9px 0;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: #f4faf6;
+  color: var(--felt-dark);
+  font-size: 14px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.tp-close:active { transform: scale(0.98); }
+
+/* ------------------------------------------------------------------ */
+/* 统计：本场战绩面板（维度1）/ 单局结算明细（维度2）/ 分析报表（维度3）   */
+/* ------------------------------------------------------------------ */
+
+/* 顶栏「战绩」按钮已在 #newgame,#rivermode,#statsbtn 统一基础样式里 */
+
+/* 分页切换（本场战绩 / 分析报表） */
+.stats-tabs { display: flex; gap: 6px; margin: 6px 0 4px; }
+.stats-tab {
+  flex: 1 1 0;
+  border: 1px solid var(--line);
+  background: #f6f6f6;
+  color: #555;
+  border-radius: 8px;
+  padding: 7px 0;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.stats-tab.active { background: var(--felt); color: #fff; border-color: var(--felt); }
+
+.stats-sub { font-size: 12px; color: #777; margin: 2px 0 4px; }
+.stats-tip { font-size: 11px; color: #999; margin-top: 6px; line-height: 1.5; }
+
+.stats-close {
+  width: 100%;
+  margin-top: 12px;
+  padding: 10px 0;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: #f4faf6;
+  color: var(--felt-dark);
+  font-size: 14px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.stats-close:active { transform: scale(0.98); }
+.stats-reset {
+  margin-top: 10px;
+  padding: 7px 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: #888;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+/* 战绩表 / 明细表：红涨绿跌（净分正=红 负=绿，沿用 .st-money 口径） */
+.score-table, .detail-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 8px 0;
+  font-size: 12px;
+}
+.score-table th, .detail-table th {
+  background: #f1f7f4;
+  color: #1f7a4d;
+  font-weight: 700;
+  padding: 5px 6px;
+  text-align: center;
+  border: 1px solid var(--line);
+}
+.score-table td, .detail-table td {
+  padding: 5px 6px;
+  text-align: center;
+  border: 1px solid var(--line);
+}
+.score-table tr.leader { background: #fffbe9; }
+.detail-table, .score-table { font-variant-numeric: tabular-nums; }
+.detail-table td.pos, .score-table td.pos,
+.detail-table td.neg, .score-table td.neg { font-weight: 700; }
+.detail-table td.pos, .score-table td.pos { color: #c0392b; }
+.detail-table td.neg, .score-table td.neg { color: #1f7a4d; }
+.detail-table td.win-cell { background: #fffbe9; font-weight: 700; }
+
+/* 结算弹窗内的本场明细段 */
+.st-detail { margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--line); }
+.st-detail-head { font-size: 13px; font-weight: 800; color: var(--felt-dark); margin-bottom: 4px; }
+
+/* 分析报表图表 */
+.rpt-chart { margin: 10px 0; }
+.rpt-title { font-size: 13px; font-weight: 800; color: var(--felt-dark); margin-bottom: 4px; }
+.rpt-svg-box { width: 100%; }
+.rpt-svg { width: 100%; height: auto; display: block; }
+.rpt-legend { display: flex; gap: 10px; margin-top: 4px; font-size: 11px; color: #555; flex-wrap: wrap; }
+.rpt-legend .lg { display: inline-flex; align-items: center; gap: 3px; }
+.rpt-legend .lg::before { content: ''; width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+.lg-small::before { background: #9bbf9b; }
+.lg-big::before { background: #2c7be5; }
+.lg-gold::before { background: #e8a317; }
+
+/* 「我的战绩」：头号数字（总输赢）+ 指标网格（红涨绿跌） */
+.stat-hero {
+  font-size: 40px;
+  font-weight: 800;
+  line-height: 1.1;
+  text-align: center;
+  margin-top: 6px;
+  font-variant-numeric: tabular-nums;
+}
+.stat-hero.pos { color: #c0392b; }
+.stat-hero.neg { color: #1f7a4d; }
+.stat-hero-label {
+  text-align: center;
+  font-size: 12px;
+  color: #888;
+  margin: 2px 0 10px;
+}
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+  margin-top: 4px;
+}
+.stat-cell {
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: #fcfdfc;
+  padding: 7px 4px;
+  text-align: center;
+  min-width: 0;
+}
+.stat-cell b {
+  display: block;
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--felt-dark);
+  font-variant-numeric: tabular-nums;
+}
+.stat-cell span { display: block; font-size: 11px; color: #888; margin-top: 1px; }
+/* 主指标（胜率/大胡率/金顶率/总平均分）比副指标醒目一档 */
+.stat-grid + .stat-grid { margin-top: 8px; }
+.stat-grid + .stat-grid .stat-cell { background: #f6f8f6; padding: 5px 4px; }
+.stat-grid + .stat-grid .stat-cell b { font-size: 14px; font-weight: 700; }
+.stat-cell b.pos { color: #c0392b; }
+.stat-cell b.neg { color: #1f7a4d; }
+
+/* 移动端微调 */
+/* 顶栏放不下「标题 + 5 个控件」：窄屏先省标题（横屏本来也省），把宽度让给按钮 */
+@media (max-width: 560px) {
+  .topbar h1 { display: none; }
+}
+/* 手机上「标题/座位/房间状态 + 控件」一行放不下：改成两行，避免状态条被挤成竖排 */
+@media (max-width: 440px) {
+  .topbar { flex-wrap: wrap; row-gap: 4px; }
+  .topbar > div:first-child {
+    flex: 1 1 100%;
+    display: flex; flex-wrap: nowrap; align-items: baseline; gap: 2px 8px;
+    min-width: 0;
+  }
+  .topbar > div:first-child > .sub { flex: 0 0 auto; max-width: 46%; }
+  #room-status {
+    flex: 1 1 0; min-width: 0;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  #room-status br { display: none; }
+  .topbar-btns { flex: 1 1 100%; justify-content: flex-end; }
+}
+@media (max-width: 480px) {
+  .tile-face { height: 46px; }
+  .tile.small .tile-face { height: 30px; }
+  .tile.river .tile-face { height: 25px; }
+  .tile.tiny .tile-face { height: 21px; }
+  #app { padding: 8px 8px 20px; }
+  #table { grid-template-columns: 70px minmax(0, 1fr) 70px; gap: 6px; }
+  .river-board { max-height: 182px; }
+  .topbar h1 { font-size: 16px; }
+  .topbar { gap: 4px; }
+  .topbar-btns { gap: 4px; }
+  #newgame, #rivermode, #tenpaibtn, #statsbtn, #exitgame { padding: 4px 6px; font-size: 10px; }
+  #tileskin { padding: 4px 3px; font-size: 10px; max-width: 56px; border-radius: 6px; }
+  .modal-card { padding: 12px 11px 10px; }
+  /* 我的手牌（始终在下方）：竖屏也按方位摆成一行，缩到 14 张能进一横排 */
+  .seat-bottom #me-hand .tile-face { height: 30px; }
+  .seat-bottom #me-hand { gap: 4px; }
+}
+
+/* 手机横屏：一屏放得下（老吴 2026-10-01 起，2026-10-02 两轮重做）
+   ------------------------------------------------------------------
+   ❗竖屏那套「四家上下堆叠」在横屏必然撑爆：可用高度只有 360~430，
+     而「对家一行 + 中央牌河 + 我的座位」三块纵向加起来就有 ~780（实测纵溢 371~401px）。
+
+   第一轮（只把左右两家改横排 wrap）：纵溢 371 → 89px，还差一截。
+   逐块量下来根因很明确 —— `#table` 的**中间行**高度由左右两家决定，而罪魁是
+     `.melds-zone`（**不是** `.hand-zone`）：横屏下侧栏只有 88px 宽、内容宽 76px，
+     `.melds-row` 即使改成 `row + wrap` 也只能**一副副往下摞**（5 副副露 = 134px）。
+   所以第二轮换思路：**横屏缺的是高度、不缺宽度** —— 干脆把侧栏放宽
+     （88px → 150px），让副露一行能摊 2 副、牌背一行能摊 10 张，
+     于是侧栏从 223px 压到 ~115px，中间行不再顶破。
+   另外顺手砍掉三处「纯装饰、只为竖屏服务」的高度：
+     · `.topbar h1` 大标题        （方位信息在 `.seatline` 里还有）
+     · `.seat-bottom .me-title`  「我的手牌」四个字
+     · `.topbar-btns` 按钮改成小号
+
+   🔴 **2026-10-09：每档都加了第二个媒体条件（逗号并列），让「手机竖屏旋转 90°」
+      也命中同一批规则 —— 见文末「自动横屏」整段。**
+   关键换算：**旋转后的「逻辑高度」= 竖屏时的 `max-width`**（390/414/360…），
+   所以 `orientation:portrait and (max-width:520px)` 正好对应 `max-height:520px` 那一档。
+   `pointer:coarse` 限定**只对触屏生效**，桌面窄窗口不会被误伤。
+   规则体仍然只写一遍（`@media` 支持逗号并列），不存在两份样式漂移的问题。*/
+@media (orientation: landscape) and (max-height: 520px),
+       (orientation: portrait) and (pointer: coarse) and (max-width: 520px) {
+  /* ❗2026-10-01 二次改口：`#app` 的一屏高 + flex 列已上移到**基础样式**
+     （单机/网络、竖屏/横屏都靠它固定高度），这里只改 padding。 */
+  #app { max-width: 100%; padding: 3px 6px 4px; }
+  .topbar { margin-bottom: 3px; }
+  /* 横屏省掉大标题那一行（`seatline` 里的方位/场风信息还留着） */
+  .topbar h1 { display: none; }
+  .topbar .sub { font-size: 10px; }
+  #newgame, #rivermode, #statsbtn { padding: 3px 8px; font-size: 11px; border-radius: 6px; }
+  #tileskin { padding: 3px 4px; font-size: 10px; border-radius: 6px; max-width: 60px; }
+  #exitgame { padding: 3px 8px; font-size: 11px; border-radius: 6px; }
+
+  /* ① 侧栏放宽：横屏的稀缺资源是高度，宽度管够 → 用宽度换高度 */
+  #table {
+    /* ❗2026-10-01 最终口径：牌桌**吃满** topbar 以下的全部高度（`flex:1` + 三行
+       `auto/minmax(0,1fr)/auto`，已写在基础样式里），但**富余高度只进中间行**、
+       不进牌河（`.center` 是 `align-self:start` + `.river-board` 是 `flex:0 1 auto`）。
+       这样既不「牌河空一大片」，也**高度恒定**——操作条出现/消失只压缩中间行，
+       我的座位钉在牌桌底部、手牌一动不动。 */
+    grid-template-columns: minmax(110px, 150px) minmax(0, 1fr) minmax(110px, 150px);
+    gap: 4px;
+  }
+  .seat { padding: 3px 5px; border-radius: 8px; }
+  .seat-left, .seat-right { padding: 3px 5px; }
+  .seat-head { font-size: 11px; gap: 3px; }
+  .seat-head .meta, .seat-head .flag { font-size: 10px; }
+  .seat-body { margin-top: 2px; gap: 2px; }
+  /* 侧栏的头部/副露/牌背一律改横排 wrap（原来是为了 70px 窄栏才竖排的） */
+  .seat-left .seat-head, .seat-right .seat-head {
+    flex-direction: row; flex-wrap: wrap; align-items: center; gap: 3px;
+  }
+  .seat-left .seat-body, .seat-right .seat-body {
+    flex-direction: column; gap: 2px; margin-top: 2px;
+  }
+  .seat-left .melds-zone, .seat-right .melds-zone { margin-bottom: 2px; }
+  .seat-left .melds-row, .seat-right .melds-row { flex-direction: row; flex-wrap: wrap; gap: 2px; }
+  .seat-left .meld, .seat-right .meld { padding: 0 2px; }
+  .seat-left .meld-label, .seat-right .meld-label {
+    flex: 0 0 auto; margin: 0 2px 0 0; font-size: 9px; padding: 0 2px;
+  }
+  .seat-left .hand-zone, .seat-right .hand-zone {
+    flex-direction: row; flex-wrap: wrap; overflow-y: visible; overflow-x: hidden;
+  }
+  /* 横屏侧栏已经够宽，牌背改横排 wrap 即可 —— 把基础样式里为竖屏设的 `max-height` 解掉 */
+  .seat-left .hand-backs, .seat-right .hand-backs {
+    flex-direction: row; flex-wrap: wrap; max-height: none;
+  }
+
+  /* ② 「我的手牌」四个字在横屏纯属多余（牌就在最下面，一眼就知道） */
+  .seat-bottom .me-title { display: none; }
+
+  /* ③ 牌面全线缩一档：横屏靠「左右宽」摊牌，不靠「上下高」堆牌 */
+  .tile-face { height: 30px; }
+  .tile.small .tile-face, .center-item .tile-face { height: 19px !important; }
+  .tile.river .tile-face { height: 17px; }
+  .tile.tiny .tile-face { height: 14px; }
+  .hand-backs { margin-top: 1px; gap: 1px; }
+  .hand-backs .tile-face { height: 16px; }
+  .seat-left .hand-backs .tile-face, .seat-right .hand-backs .tile-face { height: 13px; }
+  .seat-bottom #me-hand { gap: 3px; }
+  .seat-bottom #me-hand .tile-face { height: 30px; }
+
+  /* ④ 中央：沿用基础样式的「按内容收紧」（老吴 2026-10-01：牌河不需要空那么多空间），
+        这里只把横屏专属的字号/间距再压一档。 */
+  .center { padding: 4px 6px; gap: 3px; }
+  .center-head { font-size: 11px; padding-bottom: 2px; gap: 2px 8px; }
+  .river-board { max-height: 88px; gap: 3px; }
+
+  .act-btn { padding: 5px 10px; font-size: 12px; }
+  .gang-nodraw { padding: 5px 7px; font-size: 11px; }
+  /* 操作条现在在「我的座位」里（手牌正上方），上下都用小 margin 收着 */
+  #controls { gap: 4px; padding: 4px 8px; margin: 2px 0 4px; }
+  .hint { font-size: 11px; }
+  .auto-pass-tip { margin-top: 2px; font-size: 12px; }
+  .win-prompt { font-size: 13px; padding: 4px 8px; }
+
+  /* ⑤ 弹窗（结算 / 胡牌提示 / 听牌）：横屏一屏装不下四家摊牌 → 让**弹窗内部**滚动，
+        不要把页面撑高（`position:fixed` 的弹窗本来也不进 scrollHeight，这里只是防它超出屏幕） */
+  .modal-card { max-height: 94dvh; overflow-y: auto; }
+  #settle-card .st-row { padding: 4px 6px; }
+  #settle-card .st-tiles .tile-face { height: 17px; }
+  /* 结算：四家一个框架逐行排（老吴 2026-10-28：不再 2×2 —— 牌面单行不换行需要整行宽度） */
+  #settle-card { max-width: min(96vw, 760px); }
+  #settle-card .st-list { display: grid; grid-template-columns: 1fr; gap: 0; }
+  #tenpai-card .tile-face { height: 17px !important; }
+}
+
+/* 真机横屏的实际高度：375（iPhone SE2/3）· 393/412/430（iPhone 15/安卓）· 360（多数安卓）。
+   ≤420 这一档把这些档位再各砍一刀 —— 逐块量下来还剩三处「可省的高度」：
+     · `.center-head` 是「剩余/场风/座位」信息条，窄屏换行后要占 2 行（43px → 21px）；
+     · `.topbar` 的按钮与 `.seatline` 字号还能再降；
+     · `.river-board` 的 `max-height` 从 88 收到 64（牌河本来就能滚）。
+   目标不是「好看」，是**一屏放得下、不用上下滚**。 */
+@media (orientation: landscape) and (max-height: 420px),
+       (orientation: portrait) and (pointer: coarse) and (max-width: 420px) {
+  .topbar { margin-bottom: 2px; }
+  .topbar .sub { font-size: 9px; }
+  #newgame, #rivermode, #statsbtn { padding: 1px 6px; font-size: 10px; }
+  #exitgame { padding: 1px 6px; font-size: 10px; }
+
+  /* 信息条改**单行 + 横向滚动**：宁可少看半行，也不要它吃掉一行的纵向空间
+     （窄到 568 时 5 个信息块共 ~297px，中央栏只有 ~236px，必然换行） */
+  .center-head {
+    flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden;
+    font-size: 10px; gap: 2px 6px; padding-bottom: 1px;
+  }
+  .center-item { white-space: nowrap; }
+
+  .seat { padding: 2px 4px; }
+  .seat-left, .seat-right { padding: 2px 4px; }
+  .seat-head { font-size: 10px; gap: 2px; }
+  .seat-head .meta, .seat-head .flag { font-size: 9px; }
+  .seat-head .flag { padding: 0 3px; }
+  .melds-zone { margin-bottom: 1px; }
+
+  .tile-face { height: 27px; }
+  .tile.small .tile-face { height: 17px !important; }
+  .tile.river .tile-face { height: 15px; }
+  .tile.tiny .tile-face { height: 13px; }
+  .hand-backs .tile-face { height: 14px; }
+  .seat-left .hand-backs .tile-face, .seat-right .hand-backs .tile-face { height: 12px; }
+  .seat-bottom #me-hand .tile-face { height: 27px; }
+
+  .center { padding: 3px 5px; gap: 2px; }
+  /* ❗同基础样式：`flex: 0 1 auto`（跟着牌张数走）。
+     这里原来写的是 `flex: 1 1 auto; min-height: 28px` —— 那会在牌河还空着的时候
+     就硬撑 28~64px（正是老吴说的「牌河空那么多空间」），横屏一律改回按内容。 */
+  .river-board { flex: 0 1 auto; max-height: 64px; }
+  .river-empty { font-size: 11px; }
+
+  .act-btn { padding: 4px 8px; font-size: 11px; }
+  .gang-nodraw { padding: 4px 6px; font-size: 10px; }
+  .gang-nodraw input { width: 13px; height: 13px; }
+  #controls { padding: 2px 6px; margin: 1px 0 2px; gap: 4px; }
+  .hint { font-size: 10px; line-height: 1.25; }
+  /* 横幅默认 `width:100%` 独占一行（竖屏 / 桌面就是要那个气势）。
+     但真机横屏高度只有 360~375，多占一行就是 15px 的溢出 ——
+     改成 `width:auto` 让它**和「胡」「过」两个按钮挤同一行**：
+     800px 宽下一行放得下（按钮 ~110px + 横幅 ~260px），白省一行。 */
+  .win-prompt {
+    width: auto; flex: 1 1 auto; min-width: 0;
+    font-size: 11px; padding: 1px 6px; margin-bottom: 0; line-height: 1.3;
+  }
+}
+
+/* ≤350 只剩「iPhone 5 / SE1 时代」的 568×320 这类超矮横屏（现代手机横屏都 ≥360）。
+   到这一档连最后 8px 都要抠 —— 而且**只抠 padding / margin，不抠牌面**：
+   牌再小就真看不清了，那还不如让页面滚 8px。
+   （实测：砍完之后 568×320 连打 3 局也回到 0 溢出。）
+   ❗2026-10-01 追加：`#controls` 搬进「我的座位」（手牌正上方）之后，
+     这一档在**听牌弹窗亮起**时又冒 5px（`#app` 325 > 320）。
+     逐块量下来是 `topbar 27 + 上家 68 + 中间行 113 + 我的座位 106 + 上下 padding 4`。
+     `#controls` 那 23px 无论放桌内桌外都要占，所以只能从「缝隙」里抠：
+       · `.topbar` margin-bottom 2 → 0      （-2）
+       · `#controls` margin 1px 0 2px → 0   （-3）
+       · `#app` padding-bottom 2 → 0        （-2）
+     共抠回 7px，留 2px 余量。**不动牌面高度、不动副露**。 */
+@media (orientation: landscape) and (max-height: 350px),
+       (orientation: portrait) and (pointer: coarse) and (max-width: 350px) {
+  #app { padding: 2px 5px 0; }
+  .topbar { margin-bottom: 0; }
+  /* ❗老吴 2026-10-01：网络版 `.topbar` 左侧比单机版**多一块 `#room-status`**，
+     而且它 innerHTML 里写死了 `<br />`（「第 N/M 把 · 圈 · 庄」＋换行＋各家准备状态），
+     **永远是两行** 28px → 把 `.topbar` 从 25 顶到 43、`#table` 从 29 推到 45，
+     「结算弹窗」段整页纵溢 16px（`#app 336 > 320`）。
+     三条一起用才够（逐条实测：单用任一条都还差 1~16px）：
+       ① `#room-status br { display:none }` —— 拆掉那个写死的换行（-16px）；
+       ② 左侧改 flex 行，座位行与状态行**排进同一行**（-13px）；
+       ③ `flex-wrap: nowrap` + 状态条 `flex:1 1 0` + 省略号 ——
+          否则两段文字加起来（~451px）比可用宽（~420px）宽，会自己拐到第二行，②白做（-17px）。
+     座位行 `flex:0 0 auto` 不许被压缩；只让状态条吃剩余宽度、超出打省略号。
+     两者信息高度重叠（「第 N/M 把」两处都有），横屏最矮档这样取舍是划算的。 */
+  .topbar > div:first-child {
+    display: flex; flex-wrap: nowrap; align-items: baseline;
+    gap: 1px 8px; min-width: 0;
+  }
+  .topbar > div:first-child > .sub { flex: 0 0 auto; }
+  #room-status br { display: none; }
+  #room-status {
+    flex: 1 1 0; min-width: 0; font-size: 9px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .seat { padding: 1px 3px; }
+  .seat-left, .seat-right { padding: 1px 3px; }
+  .seat-body { gap: 1px; margin-top: 1px; }
+  .melds-zone { margin-bottom: 0; }
+  .center { padding: 2px 4px; }
+  #controls { padding: 2px 5px; margin: 0; }
+}
+
+/* ==================================================================== */
+/* 手机竖屏 → 自动横屏展示（老吴 2026-10-09）                          */
+/* ==================================================================== */
+/* 需求原文：「我需要当用手机打开时，根据屏幕大小，自动横屏展示，
+   并且页面大小固定不动」
+
+   实现方式：**CSS 把整页旋转 90°**，竖屏也能看到横屏布局。
+   为什么不用 JS 的 `screen.orientation.lock()`：iOS Safari 不支持，
+   且必须全屏 + 用户手势 = 每次进游戏都要多点一下，桌面浏览器也不该被锁。
+
+   🔴 **核心换算（整个方案的地基）**：
+     旋转 90° 后，**可视区域的「逻辑高度」= 竖屏时的视口宽度**（390/414/360…）。
+     所以上面三档横屏规则都用 `@media` **逗号并列**加了一个
+     `(orientation:portrait) and (pointer:coarse) and (max-width:Npx)` 条件 ——
+     N 与原来的 `max-height:N` **一一对应**，规则体仍只写一遍，不存在两份样式漂移。
+
+   🔴 **为什么必须挂 `pointer:coarse`**：
+     否则「桌面浏览器开一个窄窗口」（如 500×900）也会被旋转 90°，桌面用户直接懵。
+     `pointer:coarse` = 触屏设备（手指/触控笔），鼠标设备不命中。
+
+   ⚠️ **`transform` 不参与布局** —— 这是本方案不会破坏「高度固定」红线的原因：
+     旋转是纯绘制层变换，不改变任何盒模型、不触发重排。
+     `#app{height:100dvh}` 仍在，只是整块被转了个方向。
+
+   🔴 **2026-10-24 作用域收窄：只旋转「牌桌画面」，不旋转登录/大厅页**。
+     原实现不分页面 —— 手机竖屏打开**登录页**也被整页转 90°，表单贴边、
+     大片空白（老吴手机截图实锤）。现在由 JS 在进出牌桌时给 `<html>` 挂/摘
+     `in-play`（net-lobby.js 的 showPlay/showLobby、replay.js 的开/退回放、
+     单机 main.js 启动即挂），下面所有选择器都以 `html.in-play` 开头：
+     类不在 ⇒ 一条都不命中 ⇒ 登录/俱乐部/牌桌大厅保持竖屏原生排版，
+     页面该滚就滚（那三条横屏压缩档只缩字号不锁滚动，竖屏大厅无碍）。 */
+@media (orientation: portrait) and (pointer: coarse) {
+  /* ① 舞台：把 body 当成「宽 = 屏高、高 = 屏宽」的横向画布。
+        `position:fixed` + `inset:0` 是为了让 `100vw/100vh` 有确定的参照，
+        否则旋转后 body 仍是竖屏尺寸，右边会空一大块。 */
+  html.in-play, html.in-play body {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    /* 旋转后不允许出现滚动条 —— 一旦能滚，旋转中心就会漂，整页歪掉 */
+    overscroll-behavior: none;
+  }
+  html.in-play body {
+    position: fixed;
+    inset: 0;
+    /* ❗必须显式交换宽高：`body` 的百分比高度要相对这层。
+       `100vw` = 屏宽 = 旋转后的逻辑高度；`100dvh` = 屏的可见高 = 旋转后的逻辑宽度
+       （dvh 跟随 iOS 地址栏收放；不支持 dvh 的老浏览器回退到上一行的 vh）。 */
+    width: 100vh;
+    width: 100dvh;
+    height: 100vw;
+    /* ❗🔴 定位是本方案最容易错的一步（2026-10-24 手机实测翻车点）：
+       若写 `transform: rotate(90deg)` + 默认 origin(center)，盒子绕**原竖屏盒子的中心**
+       转，中心停在 (vh/2, vw/2) 不动 ⇒ 旋转后的 390×844 视觉盒横移出屏
+       （390 屏上 x=227 起步，右侧 227px 全在屏幕外，只剩一条 163px 的竖条可见）。
+       正确写法：origin 挪到左上角，先 translateY(-100%)（自身高度=100vw）再旋转，
+       数学上精确落回 (0,0, 100vw宽 × 100dvh高) 的可视区。 */
+    transform: rotate(90deg) translateY(-100%);
+    transform-origin: left top;
+  }
+
+  /* ② #app 在旋转后拿到的可用高度 = 旋转前的视口宽（390 之类），
+        所以这里让 `#app` 跟着 body 走（100%），而不是再写 `100dvh`
+        —— 否则会按「屏高」算，把竖屏那套超高布局又套回来。 */
+  html.in-play #app {
+    height: 100%;
+    /* 旋转后逻辑宽度很大（≥ 屏高），桌面那条 `max-width:720px` 会把牌桌挤成一条。
+       横屏档已经把它改成 `max-width:100%`，这里兜住「横屏档没命中」的极端情况。 */
+    max-width: 100%;
+    /* 竖屏那套 `overflow-y:auto` 在旋转后不该再滚（一屏放得下是硬指标） */
+    overflow: hidden;
+  }
+
+  /* ③ 竖屏专属的大标题在旋转后是纯浪费高度 —— 横屏 520 档已经 `display:none`，
+        这里只兜「万一三档都没命中」的情况。 */
+  html.in-play .topbar h1 { display: none; }
+
+  /* ④ 安全区：横过来之后刘海/圆角跑到左右两侧去了。
+        `viewport-fit=cover` 已在 meta 里声明，这里把 padding 让出来，
+        否则靠边的座位会被刘海盖住。`env()` 在不支持的浏览器上回退 0，安全。 */
+  html.in-play #app {
+    padding-left: max(2px, env(safe-area-inset-right));
+    padding-right: max(2px, env(safe-area-inset-left));
+  }
+
+  /* ⑤ 触摸手势：旋转后浏览器仍按**设备物理方向**判定滚动方向，
+        所以竖着划页面会觉得「反了」。禁用整页手势，牌桌内部的滚动不受影响
+        （牌桌用的是 `overflow-y:auto` 的元素级滚动，可以单独留着）。 */
+  html.in-play body {
+    touch-action: manipulation;
+  }
+
+  /* ⑥ `.flash` 用的是 `left:50%; bottom:18px; translateX(-50%)`，
+        旋转 90° 后 `bottom` 变成「离左边 18px」，提示会弹在侧边。
+        改用 `top` 居中。（`.modal` / `.winds` 用的是 `inset:0`，
+        fixed 相对视口 + 祖先 transform ⇒ 会跟着转，实测正常，不用动。） */
+  html.in-play .flash {
+    left: 50%;
+    top: 8px;
+    bottom: auto;
+  }
+}
+
+/* 七皮 / 十杠达成播报：在各家门前弹一次，自动消失，不挡点击 */
+#achv-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 85;
+  pointer-events: none;
+  overflow: hidden;
+}
+.achv-toast {
+  position: absolute;
+  min-width: 82px;
+  padding: 6px 10px;
+  border-radius: 9px;
+  background: rgba(20, 50, 39, .94);
+  border: 1px solid rgba(240, 201, 106, .75);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, .35);
+  color: #fff;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.45;
+  transform: translate(-50%, -50%);
+  animation: achv-pop 2.8s ease forwards;
+}
+.achv-line.gain { color: #ffd46b; }
+.achv-line.pay { color: #ff9f92; }
+@keyframes achv-pop {
+  0% { opacity: 0; transform: translate(-50%, -30%) scale(.82); }
+  12% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  76% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  100% { opacity: 0; transform: translate(-50%, -72%) scale(.94); }
+}
+
+/* ---------------------------------------------------------------- */
+/* 思考光影（老吴 2026-10-24）：轮到谁出牌/响应，谁的头像外圈流光。
+   纯绘制层动画（伪元素 + mask 环），不改布局尺寸 —— 页面高度恒定红线不受影响。 */
+.avatar { position: relative; }
+.avatar.thinking::before {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  border-radius: 50%;
+  background: conic-gradient(#ffd75e 0 50deg, rgba(255,215,94,0) 130deg 230deg, #ffd75e 310deg 360deg);
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 3px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 3px));
+  animation: avatar-flow 1.4s linear infinite;
+  pointer-events: none;
+}
+@keyframes avatar-flow { to { transform: rotate(360deg); } }
+
+/* 预设头像库（老吴 2026-10-24）：emoji / 上传图片两种形态；无头像回退首字圆牌 */
+.avatar.avatar-emoji {
+  background: #f6f0dd;
+  color: #333;
+  font-size: 14px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.avatar.avatar-img { overflow: hidden; border-radius: 50%; }
+.avatar.avatar-img img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+/* ---------------------------------------------------------------- */
+/* 木质桌沿（2026-10-24 美化）：视口四周一圈实木边框。                 */
+/* 纯绘制层（fixed + pointer-events:none），零布局影响 ——             */
+/* 「页面高度恒定」红线不受影响；层级压在成就播报(85)/弹窗(800)/提示(900) 之下。 */
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  pointer-events: none;
+  border: 10px solid transparent;
+  border-image: repeating-linear-gradient(
+      90deg, #714624 0 4px, #8a5a33 4px 6px, #6d4423 6px 9px, #825430 9px 12px) 10;
+  box-shadow:
+    inset 0 0 0 1.5px rgba(255, 214, 140, .26),
+    inset 0 0 24px rgba(0, 0, 0, .4);
+}
+
+/* 下雨标记（老吴 2026-10-25）：包胡宣告后，义务人手里的雨花色牌加蓝色描边提醒。
+   outline 纯绘制层，不占布局 —— 页面高度恒定红线不受影响。 */
+.tile.rain-tile { outline: 2px solid rgba(64, 156, 255, .8); outline-offset: 1px; border-radius: 3px; }
+
+.st-flag.bonus-gain { color: #1f9d5b; border-color: rgba(31, 157, 91, .5); background: rgba(31, 157, 91, .12); }
+.st-flag.bonus-pay { color: #c0392b; border-color: rgba(192, 57, 43, .5); background: rgba(192, 57, 43, .1); }
+
+/* ------------------------------------------------------------------ */
+/* iOS Safari 聚焦自动放大（老吴 2026-10-24 手机实测报障）            */
+/* ------------------------------------------------------------------ */
+/* iPhone 上 input/select 聚焦时若字号 <16px，Safari 会自动整页放大，
+   且切到下一页后**保持放大不复原**，必须手动捏合才能恢复。
+   触屏设备上所有可输入控件统一 16px 起（!important 压过各压缩档的小字号），
+   桌面（鼠标指针）不受影响。 */
+@media (pointer: coarse) {
+  input, select, textarea { font-size: 16px !important; }
+}

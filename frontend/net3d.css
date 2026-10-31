@@ -1,0 +1,790 @@
+/* 3D 网络版（net3d.html）专属样式：隐藏 2D 牌桌，让 3D 画布吃掉牌桌区高度，
+   操作条（#controls / #auto-pass-tip）从 render.js 手里挪出来后浮在画布底部。
+   只被 net3d.html 引用，不影响现有 2D 网络版。 */
+
+/* 大厅各页撑满（老吴 2026-10-25）：#app 的 720px 上限整体放开——登录/俱乐部/牌桌/
+   游戏/回放/统计统一满幅，手机电脑自适应（内容网格在 net.css 的媒体查询里分档）。
+   ❗只去掉宽度上限；竖向滚动保留（大厅列表要滚）。 */
+#app { max-width: none; }
+
+/* 牌桌页：整屏铺满并去滚动条（:has 在现代浏览器均支持）。 */
+#app:has(#play:not([hidden])) {
+  max-width: none;
+  padding: 0;
+  overflow: hidden;
+}
+body:has(#play:not([hidden])) { overflow: hidden; }
+
+
+/* 固定铺满视口：不吃 #app 的 720px 限制，也不参与大厅滚动 */
+#play {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  max-width: none;
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+#play[hidden] { display: none !important; }
+/* 手机竖屏自动横屏（老吴 2026-10-24 修「3D 页没按合适分辨率展示」）：
+   style.css 把 body 旋转 90° 后，transform 元素成为 fixed 后代的**包含块**，
+   #play 的定位上下文 = 旋转后的 body。此时 height:100dvh 取的是**物理屏高**
+   （旋转前的 844px），而旋转后的逻辑高度应是屏宽（390px）⇒ 画布纵向溢出大半。
+   旋转态改用 body 的 100%（= 旋转后的逻辑高度），非旋转态（真横屏/桌面）不受影响。 */
+@media (orientation: portrait) and (pointer: coarse) {
+  /* 旋转只在 html.in-play（牌桌画面）时发生（style.css 2026-10-24 收窄作用域）；
+     旋转态 #play 的高度必须走 body 的 100%（=旋转后的逻辑高度），
+     不能用 100dvh（那是物理屏高，会把画布纵向撑出大半屏） */
+  html.in-play #play { height: 100%; }
+
+  /* 旋转态：信息条与托管条悬浮在牌桌上缘，不占布局 —— 3D 牌桌整屏铺满
+     （老吴 2026-10-24「还是不对」：顶栏 59px + 托管条 37px 竖着吃掉约 1/4 屏宽，
+      牌桌只剩 294px；#room-status 还被压成一列 14px 宽的"一字长条"）。 */
+  html.in-play #play .topbar {
+    position: absolute;
+    top: 0; left: 0;
+    z-index: 6;
+    /* 2026-10-24 老吴「只是个按钮组，为何有条横条挡画面」：不再全宽横条，
+       改成贴角的小胶囊（按内容收缩），牌桌边缘不再被整条遮住。 */
+    width: fit-content;
+    max-width: 92%;
+    flex-wrap: wrap;
+    align-items: center;
+    padding: 3px 9px;
+    background: rgba(5, 24, 16, .82);
+    border-radius: 0 0 11px 0;
+  }
+  /* 状态文字压成单行：写死的 <br> 拆掉，超出省略（房间信息一行足够） */
+  html.in-play #play .topbar br,
+  html.in-play #room-status br { display: none; }
+  html.in-play #room-status {
+    flex: 1 1 0; min-width: 0;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  html.in-play #host-controls {
+    position: absolute;
+    top: 36px; left: 4px;
+    z-index: 6;
+    border-radius: 0 0 10px 10px;
+    background: rgba(5, 24, 16, .8);
+  }
+}
+/* 3D 牌桌上的托管条「我要尿尿 / 取消托管」：挂在（下家）头像卡正下方，
+   宽度收成与头像卡同宽 —— 老吴 2026-10-30 十七轮「按钮往下移动一点，现在和头像有点互相干扰」。
+   旧版条宽 88（10px 内边距 + 68 按钮），右缘只到 1274，左边 24px 伸到卡外、
+   压在下家手牌列 1151~1209 上；现在去内边距、按钮收窄到 ≈56，整条正好落在卡片那一列里。
+   ⚠️ 必须写成顶层规则：写进上面那个 `@media (orientation: portrait)` 里，
+   桌面横屏根本不生效（第一次就踩了这个坑，量测发现宽度仍是 88）。 */
+body:has(#play:not([hidden])) #host-controls {
+  padding: 0;
+  gap: 4px;
+  background: transparent;
+  border-radius: 0;
+}
+body:has(#play:not([hidden])) #host-controls .host-btn {
+  padding: 5px 6px;
+  font-size: 11px;
+  border-radius: 7px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .35);
+}
+
+/* 顶栏原本靠 #app 的 padding 留白；现在 #play 贴边，给顶栏自己加内边距 */
+#play .topbar { margin: 0; padding: 6px 10px; flex: 0 0 auto; }
+
+/* 2D 牌桌只给 render.js 取节点用（它按固定 id 找 seat-* / center），实际不显示 */
+#table { display: none !important; }
+
+/* 3D 画布容器：吃掉 topbar 以下全部高度 */
+#table3d {
+  flex: 1 1 auto;
+  min-height: 0;
+  position: relative;
+  overflow: hidden;
+  background: #0f3d28;
+}
+#table3d > canvas {
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
+  touch-action: none;
+}
+
+/* 癞子提示：**牌桌左上角**的小胶囊（一个「赖」字 + 牌面图），纯展示、不吃点击。
+   桌心虽然也亮着那张牌，但补个标记才一眼看出「这把赖哪张」（老吴 2026-10-19）。
+   2026-10-25 老吴：放牌桌左上顶部（锚在 #table3d 画布内，不与页面顶栏重叠）。
+   2026-10-30 老吴：「不需要文字，只需要一个“赖”字加牌面，稍放大一些」
+   —— 去掉「癞子 xx」这行长字（牌面图自会说明是哪张），牌面 34 → 52px、
+   「赖」做成黄底深绿的实心块（20px）。整枚从 ~135×41 变成 ~104×62：
+   更矮胖、牌面更大，横向反而更省地方，左上 N 卡的避让余量更松。
+   同日再改（老吴）：「赖字显示在牌面的左侧，汉字和牌面大小齐高」
+   —— DOM 顺序改成 赖块 → 牌面；字块高度直接取 --wild-tile-h（和牌面同一个变量），
+   所以两者**永远等高**，以后单独调牌面也不会再一高一矮。 */
+.wild-badge {
+  --wild-tile-h: 52px;   /* 牌面高度 = 字块高度（唯一真源） */
+  position: absolute;
+  left: 12px;
+  top: 12px;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px;          /* 左右对称：赖块在最左、牌面在最右，各留 4px */
+  /* 牌面图是方角立体牌，999px 全圆会让它的角顶出弧线（放大后很明显）→ 用方胶囊 */
+  border-radius: 12px;
+  background: rgba(6, 42, 29, 0.66);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  color: #fff;
+  line-height: 1;
+  pointer-events: none;
+  backdrop-filter: blur(4px);
+}
+.wild-badge[hidden] { display: none; }
+.wild-badge img {
+  height: var(--wild-tile-h);   /* 2026-10-30：34 → 42 → 52（去掉长文字后再放大一档） */
+  width: auto;
+  display: block;
+  /* 源图自带白面与立体牌边，再垫一块白底会多出一个直角白框（放大后很明显）→ 不垫 */
+  background: transparent;
+}
+.wild-badge b {
+  /* 「赖」块：高度锁死成牌面高度（齐高）。字号是「反推」出来的 ——
+     实测 PingFang SC 800 的「赖」墨迹高 = 0.941em（不是想当然的 0.88），
+     要让**墨迹**正好等于牌面 52px，字号就该是 52 / 0.941 ≈ 55px（58px 会高出 2.6px、
+     字顶到黄块边沿）。若改 --wild-tile-h，字号按 1.058 × 新高度 同步改。
+     行框（55px）比块高（52px）多 3px，flex 居中后上下各留 1.5px，overflow visible 不裁字。 */
+  box-sizing: border-box;
+  height: var(--wild-tile-h);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 5px;
+  color: #0b3b26;
+  background: #ffd34d;
+  font-weight: 800;
+  font-size: 55px;
+  line-height: 1;
+  border-radius: 9px;
+  overflow: visible;
+}
+
+/* 操作条（吃/碰/杠/胡/过）：只留按钮，不要提示文字、不要文本框（老吴 2026-10-19）。
+   仍然贴在手牌正上方（--hand-top 由 render3d.applySize 按手牌最高点算）；
+   容器 pointer-events:none，只有按钮本身可点 —— 不挡手牌点击。 */
+#table3d #controls {
+  position: absolute;
+  /* 2026-10-27 六轮（老吴：杠按钮别在右下角挡手牌）：**居中悬在自家手牌正上方** ——
+     底边仍由 --hand-top（手牌最高点距画布底距离）抬着，水平锚中、单行不换行；
+     手牌带横向几乎全宽，中上方正对牌河空档，不再压手牌两端。 */
+  left: 50%;
+  right: auto;
+  transform: translateX(-50%);
+  bottom: calc(var(--hand-top, 96px) + 18px);
+  width: fit-content;
+  max-width: 92%;
+  flex-wrap: nowrap;
+  z-index: 6;
+  justify-content: center;
+  /* 操作条区域要吃掉点击：pointer-events:none 时，点在按钮缝里会穿透到
+     画布手牌上（3D 是两段式出牌）→ 容易误选。 */
+  pointer-events: auto;
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  gap: 4px;
+}
+/* 老吴 2026-10-24：操作条（吃/碰/杠/过）太大挡视线 —— 3D 画布内整体压小一档 */
+#table3d #controls .act-btn { padding: 4px 10px; font-size: 12px; border-radius: 8px; }
+#table3d #controls .gang-nodraw { padding: 3px 6px; font-size: 11px; border-radius: 8px; }
+#table3d #controls .gang-nodraw input { width: 13px; height: 13px; }
+
+/* ④ 补牌开关（老吴 2026-10-28 十轮改版）：3D 桌面用**常显**「不补牌」开关
+   （#nodraw-toggle，net3d-main.js 构建/钉位，复用本段样式）；render.js 在操作条里
+   条件构建的「杠不摸牌」开关在 3D 页隐藏（2D 页仍保留，verify-ui 有文案门）。 */
+#table3d #controls .gang-nodraw { display: none; }
+#table3d > .gang-nodraw {
+  position: absolute;
+  left: 4px;
+  top: 264px;                  /* 兜底：W 卡尚未量测时先落槽位附近 */
+  /* 宽度 84 → 60（老吴 2026-10-30 十七轮）：上家手牌列被推到桌沿后，
+     列左缘只剩 ~64px 的空档，84px 的开关右缘会伸到 86、压住列上一截。
+     60 正好落在「W 卡右缘 − 开关宽」= 6~66，与列（≥64）刚好不碰。
+     内容 = 13 勾选框 + 4 间距 + 33 文字 + 4 内边距 = 54 < 60，不会切字。 */
+  width: 60px;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 4px 2px;
+  border: 1px solid rgba(255, 211, 77, .5);
+  border-radius: 10px;
+  background: rgba(5, 24, 16, .78);
+  color: #ffd34d;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  z-index: 6;
+  pointer-events: auto;
+  cursor: pointer;
+  user-select: none;
+}
+#table3d > .gang-nodraw input { width: 13px; height: 13px; margin: 0; accent-color: #b8860b; }
+#table3d #controls .hint,
+#table3d #controls .win-prompt { display: none; }
+/* 摊牌确认：进度 + 「确认」压成一行紧凑胶囊；再抬高 12px，避免压住自家牌面/副露
+   （两行叠起来在 844×390 会占掉一条牌河，老吴 2026-10-20）。 */
+#table3d #controls:has(.reveal-prompt) {
+  bottom: calc(var(--hand-top, 96px) + 12px);
+  width: min(92%, 380px);
+  flex-wrap: nowrap;
+}
+#table3d #controls .reveal-prompt {
+  pointer-events: none;
+  width: auto;
+  flex: 1 1 auto;
+  margin: 0;
+  padding: 6px 10px;
+  font-size: 13px;
+  white-space: nowrap;
+}
+#table3d #controls .act-btn,
+#table3d #controls .gang-nodraw,
+#table3d #controls button { pointer-events: auto; }
+#table3d #controls .gang-nodraw { padding: 5px 7px; font-size: 12px; }
+
+/* 自动过倒计时：纯信息浮层，pointer-events:none 保证它不吃掉画布上的手牌点击 */
+#table3d #auto-pass-tip {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 8px;
+  z-index: 5;
+  pointer-events: none;
+}
+
+/* 回放四家座位标签：名称 / 当前累计分 / 庄，浮在各家手牌左上角（只读、不吃点击） */
+#table3d .r3d-seat-labels {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  pointer-events: none;
+}
+#table3d .r3d-seat-labels[hidden] { display: none; }
+#table3d .r3d-seat-label {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 150px;
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: rgba(6, 42, 29, 0.78);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  color: #fff;
+  font-size: 12px;
+  line-height: 1.1;
+  white-space: nowrap;
+  box-shadow: 0 2px 7px rgba(0, 0, 0, 0.25);
+  backdrop-filter: blur(4px);
+}
+#table3d .r3d-seat-label[hidden] { display: none; }
+#table3d .r3d-seat-label .avatar {
+  width: 56px;      /* 与文末定义同值（同选择器后者覆盖前者，这里同步免得将来顺序一改就缩回去） */
+  height: 56px;
+  font-size: 23px;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  overflow: hidden;
+}
+#table3d .r3d-seat-label .avatar-img img { width: 100%; height: 100%; object-fit: cover; }
+#table3d .r3d-seat-label .r3d-seat-fan {
+  font-size: 11px;
+  color: #ffd34d;
+  font-weight: 700;
+  white-space: nowrap;
+}
+#table3d .r3d-seat-name {
+  max-width: 82px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 700;
+}
+#table3d .r3d-seat-score { color: #ffe08a; font-variant-numeric: tabular-nums; }
+#table3d .r3d-seat-score.pos { color: #ffb3a7; }
+#table3d .r3d-seat-score.neg { color: #9ee6b6; }
+#table3d .r3d-seat-dealer {
+  padding: 0 4px;
+  border-radius: 4px;
+  background: #ffd34d;
+  color: #4b3500;
+  font-size: 10px;
+  font-weight: 800;
+}
+#table3d .r3d-seat-dealer[hidden] { display: none; }
+
+/* 3D 牌桌信息精简（老吴 2026-10-24 微信截图）：顶部信息文字行整块不显示，
+   只留按钮组胶囊；房间信息（第N把/圈/庄/准备状态）由 relocateHud 搬进 #table3d，
+   做画布右上角的小胶囊「插空」展示。微信标题栏不受网页控制，忽略。 */
+body.mode-3d #play .topbar > div:first-child { display: none !important; }
+#table3d #room-status {
+  position: absolute;
+  right: 10px;
+  top: 8px;
+  z-index: 6;
+  max-width: 46%;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: rgba(5, 24, 16, .78);
+  border: 1px solid rgba(255, 255, 255, .15);
+  color: #d8f3e3;
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ============ 2026-10-24 空间优化（老吴参照截图的九项微调） ============ */
+/* ① 3D 牌桌只保留 胡牌提示 / 战绩 / 退出 三个按钮；
+      换肤、全屏、牌河排序、准备下一局、房间状态文字 全部撤下（信息改到下方条与中央指示器） */
+body.mode-3d #play #tileskin,
+body.mode-3d #play #btn-fullscreen,
+body.mode-3d #play #rivermode,
+body.mode-3d #play #newgame,
+#table3d #room-status { display: none !important; }
+
+/* ② 顶栏改浮动覆盖（老吴 2026-10-27：对家手牌要贴屏幕上沿）——
+      旧规则 `top:40px` 是给流式顶栏留位，画布被顶下一条；改为 absolute 覆盖后
+      #table3d(flex:1) 顶满 #play，对家手牌直贴屏边，按钮浮在桌面右上（同参考截图）。
+      仅限 3D 对局中（in-play），大厅不受影响。 */
+html.in-play body.mode-3d #play .topbar {
+  position: absolute;
+  top: 6px;
+  left: 8px;
+  right: 8px;
+  z-index: 30;
+  margin: 0;
+  pointer-events: none;
+  background: transparent;
+}
+html.in-play body.mode-3d #play .topbar button,
+html.in-play body.mode-3d #play .topbar .topbar-btns { pointer-events: auto; }
+
+/* ③ 玩家信息卡（2026-10-27 参照截图改竖版）：头像上、名字/得分下，宽 84px
+      —— 正好放进左右空白带（手牌横贯 12%~88%），左列3张竖排 + 右列1张 */
+#table3d .r3d-seat-label {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  width: 84px;
+  max-width: 84px;
+  padding: 9px 3px 5px;
+  border-radius: 10px;
+  background: rgba(5, 24, 16, .66);
+  border: 1px solid rgba(255, 255, 255, .14);
+  color: #fff;
+  white-space: nowrap;
+}
+#table3d .r3d-seat-label[hidden] { display: none; }
+#table3d .r3d-seat-label .avatar {
+  position: relative;
+  width: 56px;      /* 2026-10-30 十四轮：44 → 56（老吴「四家的头像也都放大一些，尽量大」；
+                       再大矮屏 844×390 上上家卡会顶上对家横卡，卡片高度余量只剩不到 10px） */
+  height: 56px;
+  flex: 0 0 auto;
+  font-size: 23px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  overflow: visible;           /* 角标挂在头像外沿 */
+  background: #f6f0dd;
+  color: #333;
+}
+#table3d .r3d-seat-label .avatar.avatar-img { overflow: hidden; }
+#table3d .r3d-seat-label .avatar.avatar-img img { width: 100%; height: 100%; object-fit: cover; }
+/* 掉线玩家：头像变黑白（老吴 2026-10-30）。只灰头像本身，庄/番角标与得分照旧 ——
+   信息还能用，一眼就能看出「这家现在不在」。filter 对图片和字母头像都生效。 */
+#table3d .r3d-seat-label.offline .avatar {
+  filter: grayscale(1) brightness(0.72) contrast(0.9);
+  opacity: 0.85;
+}
+#table3d .r3d-seat-label.offline .r3d-seat-name { color: rgba(255, 255, 255, 0.55); }
+#table3d .r3d-seat-label .badge-dealer {
+  position: absolute;
+  left: -5px;
+  top: -5px;
+  z-index: 2;
+  min-width: 15px;
+  height: 15px;
+  line-height: 15px;
+  text-align: center;
+  border-radius: 50%;
+  background: #d21f2b;
+  color: #fff;
+  font-size: 9px;
+  font-style: normal;
+  font-weight: 700;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, .4);
+}
+#table3d .r3d-seat-label .badge-dealer[hidden] { display: none; }
+#table3d .r3d-seat-label .badge-fan {
+  position: absolute;
+  left: 50%;
+  bottom: -7px;
+  transform: translateX(-50%);
+  z-index: 2;
+  padding: 1px 5px;
+  border-radius: 999px;
+  background: rgba(9, 48, 33, .95);
+  border: 1px solid rgba(255, 211, 77, .55);
+  color: #ffd34d;
+  font-size: 10px;   /* 2026-10-30：9 → 10，「1 番」两字才看得清 */
+  font-style: normal;
+  font-weight: 700;
+  line-height: 1.4;
+}
+#table3d .r3d-seat-label .badge-fan[hidden] { display: none; }
+#table3d .r3d-seat-label .r3d-seat-txt {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 0;
+  margin-top: 5px;   /* 让开头像下沿的番数角标 */
+}
+#table3d .r3d-seat-label .r3d-seat-name {
+  max-width: 76px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  /* 老吴 2026-10-30 十七轮：上下家头像卡贴到屏幕边后发现昵称**首字被削**
+     （显示成「n3_hd9…」，开头的 m 少了一半）。原因是 text-align:center + overflow:hidden：
+     文字比盒子宽时两侧一起溢出，左侧被裁掉、省略号只加在右侧。
+     改成左对齐，永远从第一个字开始、超宽处打省略号。 */
+  text-align: left;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.25;
+}
+#table3d .r3d-seat-label .r3d-seat-score { font-size: 12px; color: #ffe08a; font-variant-numeric: tabular-nums; line-height: 1.3; }
+#table3d .r3d-seat-label .r3d-seat-score.pos { color: #ffb3a7; }
+#table3d .r3d-seat-label .r3d-seat-score.neg { color: #9ee6b6; }
+
+/* ⑤ 牌河中央指示器：左＝第X/Y把·第N圈（2026-10-27 并入原底部信息条，免压手牌）
+      | 中＝东南西北+指向当前行动玩家的箭头 | 右＝牌墙剩余 */
+#table3d #center-indicator {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 12px;
+  border-radius: 999px;
+  background: rgba(5, 24, 16, .6);
+  border: 1px solid rgba(255, 255, 255, .14);
+  color: #d8f3e3;
+  font-size: 12px;
+  white-space: nowrap;
+}
+#table3d #center-indicator[hidden] { display: none; }
+#table3d #center-indicator .ci-compass {
+  position: relative;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: rgba(9, 48, 33, .92);
+  border: 1px solid rgba(255, 211, 77, .5);
+}
+#table3d #center-indicator .ci-arrow {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 0;
+  height: 0;
+  margin: -9px 0 0 -5px;
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-bottom: 13px solid #ffd34d;
+  transform-origin: 50% 70%;
+  transform: rotate(0deg);
+}
+#table3d #center-indicator .ci-w {
+  position: absolute;
+  font-size: 10px;
+  line-height: 1;
+  color: rgba(255, 255, 255, .8);
+}
+#table3d #center-indicator .ci-w.now { color: #ffd34d; font-weight: 700; }
+#table3d #center-indicator .ci-w.w0 { left: 50%; transform: translateX(-50%); bottom: 1px; }
+#table3d #center-indicator .ci-w.w1 { right: 2px; top: 50%; transform: translateY(-50%); }
+#table3d #center-indicator .ci-w.w2 { left: 50%; transform: translateX(-50%); top: 1px; }
+#table3d #center-indicator .ci-w.w3 { left: 2px; top: 50%; transform: translateY(-50%); }
+
+/* ============ 2026-10-24 第二轮微调 ============ */
+/* 竖排信息卡：头像在上，名字在头像下方，得分在名字下侧（老吴：名字显示在头像下方） */
+#table3d .r3d-seat-label {
+  flex-direction: column;
+  gap: 1px;
+  width: auto;                /* 卡宽贴内容（头像+名字），不横向扩张（老吴 2026-10-27） */
+  min-width: 34px;
+  max-width: 64px;
+  padding: 4px 2px 3px;
+  text-align: center;
+}
+/* 对家横卡：头像左、名称/得分右（两行），钉在其手牌行右端 */
+#table3d .r3d-seat-label.row-mode {
+  flex-direction: row;
+  gap: 6px;
+  max-width: 150px;
+  padding: 4px 9px 4px 4px;
+  text-align: left;
+  align-items: center;
+}
+#table3d .r3d-seat-label.row-mode .r3d-seat-txt { margin-top: 0; }
+#table3d .r3d-seat-label.row-mode .r3d-seat-name { margin-top: 0; }
+/* 角标锚定层（老吴 2026-10-27 五轮）：庄/番角标以头像图外沿定位，不再锚整张信息卡 */
+#table3d .r3d-seat-label .r3d-avatar-box {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 auto;
+  margin-top: 1px;
+}
+#table3d .r3d-seat-label .avatar { margin-top: 0; }
+#table3d .r3d-seat-label .r3d-seat-name {
+  max-width: 58px;
+  font-size: 11px;
+  margin-top: 3px;          /* 给头像下沿的番数角标让位 */
+  line-height: 1.2;
+}
+#table3d .r3d-seat-label .r3d-seat-score { font-size: 10px; line-height: 1.25; }
+/* 番数角标挪到头像右下角（竖排布局下不与名字重叠） */
+#table3d .r3d-seat-label .badge-fan {
+  left: auto;
+  right: -6px;
+  bottom: -3px;
+  transform: none;
+}
+
+/* 操作按钮组挪到右上角（老吴：胡牌提示和退出一起放右上，癞子徽标独占左上） */
+html.in-play #play .topbar {
+  left: auto;
+  right: 0;
+  border-radius: 0 0 0 11px;
+}
+
+/* ============ 结算窗重排（老吴 2026-10-28）：四家一个框架、每家两行、牌面单行不换行 ============
+   上行＝头像 + 计番 + 收付；下行＝手牌/副露整行摊开（窗口加宽到 1080 保证放得下）。
+   上一版（2026-10-24）的「左信息列 + 右牌列」布局废弃。 */
+/* ① 限高用百分比：旋转态下 94dvh 按物理竖屏高(844)算，而旋转后可视高只有 390，
+      弹窗超高把「下一局」按钮顶出屏幕；92% 按包含块（旋转后的 body）算，永远在屏内 */
+body.mode-3d #settle .modal-card {
+  display: flex;
+  flex-direction: column;
+  max-height: 92%;
+  width: min(98%, 1080px);
+  max-width: none;  /* 老吴 2026-10-28：style.css ≤520 档的 max-width:96vw 在 CSS 旋转的真机竖屏上
+                       vw 仍是物理竖屏宽(390)→96vw=374px，把卡片钳成窄条（对家信息挤成三行、牌面小到看不清）。
+                       旋转布局下尺寸一律用 %/dvh，禁用一切 vw 钳制。 */
+  overflow: hidden;
+}
+/* ② 标题/摘要区不弹性，四家列表占满剩余空间并可内部滚动（框架边框/分隔线由 style.css 基础规则出） */
+body.mode-3d #settle .modal-card > .st-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  margin: 8px 0;
+}
+/* ③ 每家两行：上行信息（可换行兜底），下行牌面单行不换行 */
+body.mode-3d #settle .st-row { display: flex; flex-direction: column; gap: 3px; padding: 6px 12px; }
+body.mode-3d #settle .st-tiles { flex-wrap: nowrap; overflow-x: auto; }
+/* ④ 牌面放大：tiny 17px → 34px（整行宽度够放） */
+body.mode-3d #settle .st-tiles .tile-face,
+body.mode-3d #settle .st-tiles .tile.tiny .tile-face { height: 34px !important; }
+/* ⑤ 按钮钉在卡底 */
+body.mode-3d #settle .st-again { flex: 0 0 auto; margin-top: 6px; }
+/* ⑥ 矮屏档（老吴 2026-10-28：一屏放下四家两行，不留内滚）：
+      手机是物理竖屏+CSS 旋转，媒体查询必须照 style.css 的双腿写法——
+      模拟器横屏 844×390 命中第一腿，真机竖屏 390×844 命中第二腿。
+      牌面 34→26、行距/留白全收一刀，卡限高 92%→97%。 */
+@media (orientation: landscape) and (max-height: 520px),
+       (orientation: portrait) and (pointer: coarse) and (max-width: 520px) {
+  body.mode-3d #settle .modal-card { max-height: 97%; padding: 6px 12px 4px; }
+  body.mode-3d #settle .modal-card h3 { display: none; }  /* 荒庄状态已并入 .st-section，省一行给牌面 */
+  body.mode-3d #settle .st-headline { font-size: 12px; }
+  body.mode-3d #settle .st-sub { font-size: 11px; margin-top: 1px; line-height: 1.35; }
+  body.mode-3d #settle .st-section { font-size: 12px; margin-top: 2px; }
+  body.mode-3d #settle .modal-card > .st-list { margin: 1px 0; }
+  body.mode-3d #settle .st-row { padding: 1px 10px; gap: 1px; }
+  body.mode-3d #settle .st-head { font-size: 12px; line-height: 1.25; }
+  body.mode-3d #settle .st-name { font-size: 11px; max-width: 22vw; }
+  body.mode-3d #settle .st-flag { font-size: 9px; padding: 0 5px; }
+  body.mode-3d #settle .st-chip { font-size: 10px; padding: 0 5px; line-height: 15px; }
+  body.mode-3d #settle .st-none { font-size: 10px; }
+  body.mode-3d #settle .st-money { font-size: 12px; }
+  body.mode-3d #settle .st-fan-total { font-size: 11px; min-width: 30px; }
+  body.mode-3d #settle .st-tiles { margin-top: 0; }
+  body.mode-3d #settle .st-tiles .tile-face,
+  body.mode-3d #settle .st-tiles .tile.tiny .tile-face { height: 28px !important; }
+  body.mode-3d #settle .st-total { font-size: 12px; margin-top: 0; }
+  body.mode-3d #settle .st-again { padding: 4px 0; font-size: 14px; margin-top: 1px; }
+}
+
+/* ============ 本场（连场）结算窗 ============
+   老吴 2026-10-30：「本场次的结算信息页面是竖屏页面，未调整成横屏页面」。
+   此前 #exitsummary 没有任何专属样式，只吃 style.css 的 .modal-card 默认值
+   （460px 宽 + 88vh 限高）——在横屏/旋转布局下就是一张竖屏窄卡：
+   ① 7 列表格（#/玩家/总得分/胡牌/点炮/金顶/连庄）被挤到换行；
+   ② 88vh 按**物理**竖屏高算（旋转后可视高只有屏宽），卡比可视区还高，按钮被顶出屏幕。
+   这里沿用 #settle 的口径：宽度用 %/px（旋转态 vw 仍是物理竖屏宽，禁用），限高按包含块百分比。 */
+body.mode-3d #exitsummary .modal-card {
+  display: flex;
+  flex-direction: column;
+  width: min(98%, 780px);
+  max-width: none;
+  max-height: 92%;
+  overflow: hidden;   /* 滚动交给里面的表格区，标题与按钮固定不动 */
+}
+body.mode-3d #exitsummary .modal-card > h3,
+body.mode-3d #exitsummary .modal-card > .stats-sub,
+body.mode-3d #exitsummary .modal-card > .exit-note,
+body.mode-3d #exitsummary .modal-card > .stats-close { flex: 0 0 auto; }
+/* 表格区：横屏一行放得下四家，单元格不换行（换行才是"竖屏感"的来源），放不下时内部纵向滚。
+   ⚠️ 滚动容器必须是包着 <table> 的这层 div，不能给 table 自己加 overflow（会把表格变成块、列全错）。 */
+body.mode-3d #exitsummary .modal-card > .exit-table-wrap {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  margin-top: 6px;
+}
+body.mode-3d #exitsummary .exit-score-table { margin-top: 0; width: 100%; }
+body.mode-3d #exitsummary .exit-score-table th,
+body.mode-3d #exitsummary .exit-score-table td {
+  white-space: nowrap;
+  padding: 6px 10px;
+  font-size: 13px;
+}
+body.mode-3d #exitsummary .stats-close { margin-top: 8px; }
+/* 矮屏档（真机竖屏旋转 / 模拟器横屏 844×390）：同 #settle 的双腿写法 */
+@media (orientation: landscape) and (max-height: 520px),
+       (orientation: portrait) and (pointer: coarse) and (max-width: 520px) {
+  body.mode-3d #exitsummary .modal-card { max-height: 97%; padding: 8px 12px 6px; }
+  body.mode-3d #exitsummary .modal-card > h3 { display: none; }  /* 标题让给表格 */
+  body.mode-3d #exitsummary .stats-sub { font-size: 11px; margin: 0 0 2px; }
+  body.mode-3d #exitsummary .exit-note { font-size: 10px; line-height: 1.3; }
+  body.mode-3d #exitsummary .modal-card > .exit-table-wrap { margin-top: 2px; }
+  body.mode-3d #exitsummary .exit-score-table th,
+  body.mode-3d #exitsummary .exit-score-table td { padding: 4px 7px; font-size: 12px; }
+  body.mode-3d #exitsummary .exit-rank-badge { margin-left: 4px; padding: 0 5px; font-size: 10px; line-height: 15px; }
+  body.mode-3d #exitsummary .stats-close { padding: 5px 0; font-size: 13px; margin-top: 4px; }
+}
+
+/* ============ 右上角菜单（老吴 2026-10-24）：胡牌提示/战绩/退出 收进一个小按钮 ============ */
+/* 平时只显示一个「⋯」小圆钮；点开后纵向展开为菜单（点任意项/点外部收起）。 */
+body.mode-3d #play .topbar-btns {
+  position: relative;
+  display: block;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+}
+body.mode-3d #play .topbar-btns > button:not(#btn-menu),
+body.mode-3d #play .topbar-btns > select { display: none; }
+body.mode-3d #play .topbar-btns.menu-open {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  padding: 6px;
+  background: rgba(5, 24, 16, .92);
+  border: 1px solid rgba(255, 255, 255, .15);
+  border-radius: 10px;
+}
+body.mode-3d #play .topbar-btns.menu-open > button:not(#btn-menu):not([hidden]),
+body.mode-3d #play .topbar-btns.menu-open > select:not([hidden]) { display: block; }
+#btn-menu {
+  width: 34px;
+  height: 30px;
+  padding: 0;
+  border-radius: 8px;
+  font-size: 16px;
+  line-height: 1;
+  letter-spacing: 1px;
+  background: rgba(5, 24, 16, .82);
+  border: 1px solid rgba(255, 255, 255, .18);
+  color: #fff;
+}
+/* 菜单里的禁用项（如未听牌的胡牌提示）：不吃指针事件 → 点按落到容器上，
+   由 pointerdown 兜底收起菜单（disabled 按钮不派发 click，无法走常规收起路径）。 */
+body.mode-3d #play .topbar-btns > button:disabled { pointer-events: none; opacity: .55; }
+
+/* ============ 回放控件（老吴 2026-10-29）：与对局页一致，不占顶部空间 ============ */
+/*   信息文字条贴画布底部木纹区；工具箱钉在「右侧我的下家(E)头像」正下方。        */
+/*   非回放模式（正常对局/大厅）一律隐藏，避免控件残留到牌桌。                     */
+body:not(.replay-mode) #rp-info,
+body:not(.replay-mode) #rp-tools { display: none !important; }
+
+#rp-info {
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 5px 10px;
+  font-size: 12px;
+  line-height: 1.3;
+  color: #f3e7c4;
+  background: linear-gradient(to top, rgba(0, 0, 0, .5), rgba(0, 0, 0, 0));
+  text-shadow: 0 1px 2px rgba(0, 0, 0, .8);
+  pointer-events: none;
+}
+#rp-info .rp-prefix { color: #f0c96a; font-weight: 600; }
+#rp-tools {
+  position: absolute;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  border-radius: 10px;
+  background: rgba(7, 43, 31, .92);
+  color: #eaf7f0;
+  font-size: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, .35);
+  z-index: 6;
+}
+#rp-tools .rp-seat { white-space: nowrap; }
+#rp-tools select {
+  max-width: 120px;
+  padding: 4px 6px;
+  border: 1px solid rgba(255, 255, 255, .28);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, .12);
+  color: #fff;
+  font-family: inherit;
+  font-size: 12px;
+}
+#rp-tools .lb-btn { padding: 5px 9px; font-size: 12px; }
+#rp-tools .rp-step {
+  min-width: 54px;
+  text-align: center;
+  color: #c8e7d8;
+  font-variant-numeric: tabular-nums;
+}

@@ -1,0 +1,14 @@
+{
+  "name": "柒鞗會 · 武汉红中赖子杠",
+  "short_name": "柒鞗會",
+  "description": "武汉红中赖子杠 · 网络对战（3D 牌桌）",
+  "start_url": "/app/net",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "landscape",
+  "background_color": "#0a3321",
+  "theme_color": "#0f3d28",
+  "icons": [
+    { "src": "/logo-card/icon.png", "sizes": "1536x1024", "type": "image/png", "purpose": "any" }
+  ]
+}

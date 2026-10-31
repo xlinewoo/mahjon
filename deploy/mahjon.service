@@ -1,0 +1,41 @@
+[Unit]
+Description=武汉麻将 网络对战服务 (Mahjon) — REST + Socket.IO
+Documentation=file:/opt/mahjon/docs/deploy.md
+# 需要网络就绪：服务要监听对外端口
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=mahjon
+Group=mahjon
+WorkingDirectory=/opt/mahjon
+
+# 环境变量集中放这里（由 deploy/install.sh 生成，含 JWT_SECRET / PORT / DATA_DIR）
+# 前置 `-` 表示文件不存在也不报错
+EnvironmentFile=-/etc/mahjon/mahjon.env
+Environment=NODE_ENV=production
+
+# ExecStart 里的 node 绝对路径由 deploy/install.sh 按本机实际情况改写
+ExecStart=/usr/bin/node --experimental-sqlite server/index.js
+
+Restart=always
+RestartSec=3
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=mahjon
+
+# ---- 加固 ----
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+# 数据目录必须可写（SQLite + 头像），其余文件系统只读
+ReadWritePaths=/var/lib/mahjon
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target

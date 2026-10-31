@@ -1,0 +1,40 @@
+{
+  "name": "mahjon",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "description": "武汉红中赖子杠麻将 —— 规则引擎（零依赖，可独立运行与单测）",
+  "main": "src/engine/game.js",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "test:win": "node --test test/win.test.js",
+    "test:score": "node --test test/score.test.js",
+    "test:game": "node --test test/game.test.js",
+    "sim": "node tools/simulate.js",
+    "sim:100": "node tools/simulate.js --rounds 100",
+    "sim:1000": "node tools/simulate.js --rounds 1000",
+    "sim:compare": "node tools/simulate.js --compare --rounds 300",
+    "check": "node tools/check.js",
+    "server": "node --experimental-sqlite server/index.js",
+    "start": "node --experimental-sqlite server/index.js",
+    "build": "node frontend/build.mjs",
+    "build:tiles": "node tools/build-tile-art.mjs",
+    "verify:net": "node tools/verify-net-e2e.mjs",
+    "verify:viewport": "node tools/viewport-check.mjs",
+    "verify:replay-ui": "node tools/verify-replay-ui.mjs",
+    "test:server": "DATA_DIR=\"$(mktemp -d)\" node --experimental-sqlite --test-concurrency=1 --test server/test/*.test.js"
+  },
+  "dependencies": {
+    "@fastify/multipart": "^10.1.2",
+    "bcrypt": "^5.1.1",
+    "fastify": "^5.12.5",
+    "jsonwebtoken": "^9.0.2",
+    "socket.io": "^4.8.4"
+  },
+  "devDependencies": {
+    "socket.io-client": "^4.8.4"
+  }
+}

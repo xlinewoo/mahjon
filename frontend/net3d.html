@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>武汉红中赖子杠 · 网络对战</title>
+  <!-- 手机全屏体验（老吴 2026-10-24）：PWA manifest + Apple 元信息。
+       iOS Safari 无法编程隐藏地址栏——「添加到主屏幕」后从主屏进入即无地址栏；
+       Android / 桌面可用牌桌顶栏的「全屏」按钮。 -->
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="柒鞗會" />
+  <link rel="apple-touch-icon" href="/logo-card/icon.png" />
+  <link rel="stylesheet" href="./style.css" />
+  <link rel="stylesheet" href="./net.css" />
+  <link rel="stylesheet" href="./net3d.css" />
+</head>
+<body>
+  <div id="app">
+    <!-- ==================== 大厅 ==================== -->
+    <div id="lobby">
+      <div class="lb-head">
+        <h1>武汉红中赖子杠<br /><span style="font-size:12px;font-weight:400">网络对战</span></h1>
+        <div class="lb-who" id="whoami" title="点头像换头像">未登录</div>
+        <div class="avatar-pop" id="avatar-pop" hidden>
+          <div class="lb-avatar-hint">选一个头像（随时可换）</div>
+          <div class="avatar-picker" data-avatar-picker></div>
+          <button class="lb-btn js-avatar-save" type="button">保存头像</button>
+        </div>
+      </div>
+
+      <!-- ① 登录 / 注册（logo 整卡为背景，表单浮于其上；老吴 2026-10-25） -->
+      <section class="lb-card auth-hero" id="auth-view">
+        <img class="auth-bg" src="/logo-card/hero.webp" alt="" draggable="false" aria-hidden="true" />
+        <div class="auth-panel">
+          <h2>进入游戏</h2>
+          <div class="lb-form">
+            <input id="auth-name" type="text" placeholder="昵称" autocomplete="username" maxlength="24" />
+            <input id="auth-pass" type="password" placeholder="密码（≥8 位）" autocomplete="current-password" maxlength="64" />
+            <input id="auth-confirm" type="password" placeholder="再次输入密码确认" autocomplete="new-password" maxlength="64" hidden />
+            <button class="lb-btn primary" id="btn-enter" type="button">进入</button>
+          </div>
+          <div class="lb-status" id="status-auth"></div>
+        </div>
+      </section>
+
+      <!-- ①b 新用户选头像门槛：选完才能进大厅（老吴 2026-10-25） -->
+      <section class="lb-card" id="avatar-gate-view" hidden>
+        <h2>选个头像</h2>
+        <div class="lb-sub">选一个头像后再进入游戏；以后点头像可随时更换。</div>
+        <div class="avatar-picker gate-picker" data-avatar-picker></div>
+        <button class="lb-btn primary" id="btn-avatar-gate-save" type="button" disabled>保存并进入游戏</button>
+        <div class="lb-status" id="status-gate"></div>
+      </section>
+
+      <!-- ② 俱乐部列表 -->
+      <section class="lb-card" id="clubs-view" hidden>
+        <h2>我的俱乐部 <span class="lb-count" id="clubs-count"></span></h2>
+        <div class="lb-list" id="clubs-list"></div>
+        <div class="lb-form">
+          <input id="club-name" type="text" placeholder="新建俱乐部名称" maxlength="24" />
+          <button class="lb-btn primary" id="btn-create-club" type="button">新建</button>
+          <button class="lb-btn ghost" id="btn-replay-mine-global" type="button">我的回放</button>
+          <button class="lb-btn ghost" id="btn-logout" type="button">退出登录</button>
+        </div>
+        <div class="lb-status" id="status-clubs"></div>
+        <h2 style="margin-top: 16px">可加入的俱乐部</h2>
+        <div class="lb-list" id="discover-list"></div>
+      </section>
+
+      <!-- ③ 俱乐部内部：成员 + 牌桌 -->
+      <section class="lb-card" id="club-view" hidden>
+        <!-- 两个语义栏（俱乐部·成员 / 牌桌）：基础/竖屏样式下 .club-col 就是普通块、顺序堆叠；
+             横屏矮窗由 net.css 的 #club-view grid 左右分栏。包一层后网格不再依赖
+             「正好 8 个子元素」的定长网格 —— 2026-10-24 手机竖屏此页被压成一个字宽竖条，
+             根因就是后来新加的 rule-details/status-club 溢出 4×2 网格、把 1fr 列挤成 0。 -->
+        <div class="club-col">
+        <h2>
+          <span id="club-title">俱乐部</span>
+          <button class="lb-btn ghost" id="btn-back-clubs" type="button">← 返回</button>
+        </h2>
+        <div class="lb-sub" id="club-sub"></div>
+        <div class="lb-form">
+          <button class="lb-btn ghost" id="btn-mystats" type="button">我的战绩</button>
+          <button class="lb-btn ghost" id="btn-history" type="button">跨场战绩榜</button>
+          <button class="lb-btn ghost" id="btn-replay-club" type="button">俱乐部回放</button>
+          <button class="lb-btn ghost" id="btn-replay-mine" type="button">我的回放</button>
+          <button class="lb-btn ghost" id="btn-toggle-members" type="button">俱乐部成员</button>
+          <!-- 退出俱乐部（2026-10-29）：非主席可见；主席不能退（俱乐部必须有主人） -->
+          <button class="lb-btn ghost" id="btn-leave-club" type="button" hidden>退出俱乐部</button>
+        </div>
+        <!-- 成员列表默认收起（老吴 2026-10-24）：点「俱乐部成员」才展开，再点收起 -->
+        <div id="members-box" hidden>
+          <div class="lb-list" id="members-list"></div>
+          <div class="lb-form" id="invite-form">
+            <input id="member-name" type="text" placeholder="成员昵称（对方需先注册）" maxlength="24" />
+            <select id="member-role">
+              <option value="member">成员</option>
+              <option value="admin">管理员</option>
+            </select>
+            <button class="lb-btn" id="btn-add-member" type="button">邀请</button>
+          </div>
+        </div>
+        <!-- 入会申请（2026-10-30 申请制，老吴：进俱乐部要创建人同意）：仅主席/管理员可见 -->
+        <div id="apps-box" hidden>
+          <h2 style="margin-top: 12px"><span>入会申请 <span class="lb-count" id="apps-count"></span></span>
+            <button class="lb-btn ghost" id="btn-refresh-apps" type="button">刷新</button>
+          </h2>
+          <div class="lb-list" id="apps-list"></div>
+        </div>
+        </div>
+        <div class="club-col">
+        <h2 style="margin-top: 16px">牌桌 <span class="lb-count" id="tables-count"></span></h2>
+        <div class="lb-list" id="tables-list"></div>
+        <div class="lb-sub" id="create-hint" hidden></div>
+        <div class="lb-form" id="create-table-form">
+          <input id="table-name" type="text" placeholder="新牌桌名称" maxlength="24" />
+          <select id="table-circle">
+            <option value="1">1 圈（4 把）</option>
+            <option value="2">2 圈（8 把）</option>
+            <option value="4">4 圈（16 把）</option>
+          </select>
+          <select id="table-preset">
+            <option value="koukou">口口番（默认）</option>
+            <option value="kaikou">开口即算</option>
+          </select>
+          <button class="lb-btn primary" id="btn-create-table" type="button">建房</button>
+        </div>
+        <details class="rule-details" id="create-rules" open>
+          <summary>玩法规则设定（默认＝武汉红中赖子杠标准口径，一般不用改）</summary>
+          <div id="rule-fields" class="rule-fields"></div>
+        </details>
+        <div class="lb-status" id="status-club"></div>
+        </div>
+      </section>
+
+      <!-- ④ 牌桌内（未开局）：四座位 + 准备 -->
+      <section class="lb-card" id="table-view" hidden>
+        <h2>
+          <span id="table-title">牌桌</span>
+          <button class="lb-btn ghost" id="btn-back-clubs2" type="button">← 返回</button>
+        </h2>
+        <div class="lb-sub" id="table-sub"></div>
+        <div class="lb-seats" id="table-seats"></div>
+        <div class="lb-form">
+          <button class="lb-btn" id="btn-add-bot" type="button" hidden title="往空位补一个服务端机器人，单人也能开局验证">加机器人</button>
+          <button class="lb-btn primary" id="btn-ready" type="button">准备</button>
+          <button class="lb-btn warn" id="btn-leave" type="button">离开牌桌</button>
+        </div>
+        <div class="lb-status" id="status-table"></div>
+      </section>
+    </div>
+
+    <!-- ==================== 牌桌本体（开局后显示） ==================== -->
+    <!-- render.js 按固定 id 取节点，节点需齐全（与渲染层约定一致） -->
+    <div id="play" hidden>
+      <div class="topbar">
+        <div>
+          <h1>武汉红中赖子杠</h1>
+          <div class="sub" id="seatline"></div>
+          <div id="room-status"></div>
+        </div>
+        <div class="topbar-btns">
+          <select id="tileskin" title="切换 3D 牌面风格"></select>
+          <button id="btn-fullscreen" type="button" title="全屏（隐藏浏览器界面；iPhone 请用 Safari「添加到主屏幕」）">全屏</button>
+          <button id="tenpaibtn" type="button" title="显示能胡的牌和剩余张数">胡牌提示</button>
+          <button id="rivermode" type="button" title="切换牌河排列方式">牌河：依次</button>
+          <button id="statsbtn" type="button" title="本场战绩与报表">战绩</button>
+          <button id="exitgame" type="button" title="发起退出游戏：其他三家全部同意后，按已完成牌局结算并结束本场">退出</button>
+          <button id="newgame" type="button">准备下一局</button>
+        </div>
+      </div>
+
+      <!-- 托管控制条：断线座位由在线玩家主动点「托管」才托管（取代旧「断线自动托管」） -->
+      <div id="host-controls" class="host-controls" hidden></div>
+
+      <div id="table">
+        <div class="seat seat-top" id="seat-top"></div>
+        <div class="seat seat-left" id="seat-left"></div>
+        <div class="center" id="center"></div>
+        <div class="seat seat-right" id="seat-right"></div>
+        <div class="seat seat-bottom" id="seat-bottom"></div>
+      </div>
+
+      <!-- 3D 牌桌画布（render3d 挂这里）；2D #table 仍保留给 render.js 取节点，CSS 隐藏 -->
+      <div id="table3d">
+        <div id="wild-badge" class="wild-badge" hidden></div>
+      </div>
+
+      <div id="controls"></div>
+      <div id="auto-pass-tip" class="auto-pass-tip" hidden></div>
+    </div>
+  </div>
+
+  <!-- 牌局已开始但本端还没收到首帧 state 时的过渡提示 -->
+  <div id="waiting" hidden>
+    <div class="w-big">正在发牌…</div>
+    <div class="w-sub" id="waiting-sub">等服务端下发这一把的手牌</div>
+  </div>
+
+  <!-- 一次性操作提示（如「三筒 现在打不出去」），1.8 秒自动消失 -->
+  <div id="flash" class="flash" hidden></div>
+
+  <!-- 结算弹窗 -->
+  <div id="settle" class="modal" hidden>
+    <div class="modal-card" id="settle-card"></div>
+  </div>
+
+  <!-- 胡牌提示 -->
+  <div id="tenpai" class="modal" hidden>
+    <div class="modal-card" id="tenpai-card"></div>
+  </div>
+
+  <!-- 退出游戏投票：发起后其他三家全部同意才结束本场 -->
+  <div id="exitvote" class="modal" hidden>
+    <div class="modal-card" id="exitvote-card"></div>
+  </div>
+
+  <!-- 退出游戏后的最终积分（只算已完成的牌局） -->
+  <div id="exitsummary" class="modal" hidden>
+    <div class="modal-card" id="exitsummary-card"></div>
+  </div>
+
+  <!-- 统计弹窗：本场战绩（维度1）+ 分析报表（维度3） -->
+  <div id="stats" class="modal" hidden>
+    <div class="modal-card" id="stats-card"></div>
+  </div>
+
+  <!-- 跨场历史战绩弹窗（维度4：俱乐部战绩榜，后端 SQLite 持久化） -->
+  <div id="history" class="modal" hidden>
+    <div class="modal-card" id="history-card"></div>
+  </div>
+
+  <!-- 我的时段战绩弹窗（维度4 扩展：当日 / 当月 / 当年 / 全部 的总输赢与胜率） -->
+  <div id="mystats" class="modal" hidden>
+    <div class="modal-card" id="mystats-card"></div>
+  </div>
+
+  <!-- 开发模式：需经 http 服务打开（ES Module 不支持 file://）。
+       发布单文件请看 build/net.html（由 server 的 /app/net 提供）。 -->
+  <script type="module" src="./net3d-main.js"></script>
+</body>
+</html>

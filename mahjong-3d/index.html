@@ -1,0 +1,1185 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<link rel="icon" href="data:,">
+<title>3D 麻将前端原型 · Three.js</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #1d5c3f;
+    font-family: "PingFang SC", "Microsoft YaHei", sans-serif; }
+  #app { position: fixed; inset: 0; }
+  /* canvas 自身居中 + 旋转：不用负 left/top 定位（部分手机 WebView 对 fixed+负定位+rotate 有渲染 bug） */
+  #app canvas { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); }
+  /* 竖屏横显：容器旋转 90°，HUD 收拢到角落让位牌桌 */
+  body.portrait-adapt #hud-tl, body.portrait-adapt #hud-tr { display: none; }
+  body.portrait-adapt #hud-bar { bottom: 12px; left: auto; right: 10px;
+    transform: none; flex-direction: column; gap: 6px; }
+  body.portrait-adapt #hud-msg { bottom: auto; top: 10px; font-size: 13px; }
+  body.portrait-adapt #btn-rot { display: block; }
+  #btn-rot { display: none; position: fixed; top: 10px; right: 10px; z-index: 30;
+    border: 1px solid rgba(245,239,221,.5); background: rgba(0,0,0,.4);
+    color: #f5efdd; padding: 6px 12px; font-size: 12px; border-radius: 6px;
+    cursor: pointer; }
+  .hud { position: fixed; color: #f5efdd; text-shadow: 0 1px 2px rgba(0,0,0,.5);
+    pointer-events: none; user-select: none; }
+  #hud-tl { top: 14px; left: 16px; font-size: 14px; line-height: 1.7; }
+  #hud-tr { top: 14px; right: 16px; font-size: 14px; line-height: 1.7; text-align: right; }
+  #hud-bar { bottom: 16px; left: 50%; transform: translateX(-50%);
+    display: flex; gap: 10px; pointer-events: auto; }
+  #hud-bar button { pointer-events: auto; border: 1px solid rgba(245,239,221,.5);
+    background: rgba(0,0,0,.35); color: #f5efdd; padding: 8px 18px; font-size: 14px;
+    border-radius: 6px; cursor: pointer; backdrop-filter: blur(4px); }
+  #hud-bar button:hover { background: rgba(0,0,0,.55); border-color: #f5efdd; }
+  #hud-msg { bottom: 64px; left: 50%; transform: translateX(-50%); font-size: 15px;
+    color: #ffe9a8; }
+  .tag { display: inline-block; padding: 0 6px; border-radius: 4px;
+    background: rgba(0,0,0,.35); font-size: 12px; margin-right: 4px; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div class="hud" id="hud-tl"></div>
+<div class="hud" id="hud-tr"></div>
+<div class="hud" id="hud-msg"></div>
+<div class="hud" id="hud-bar">
+  <button id="btn-draw">摸牌</button>
+  <button id="btn-opp">对家出牌</button>
+  <button id="btn-meld">模拟副露</button>
+  <button id="btn-restart">重开</button>
+</div>
+
+<button id="btn-rot" title="竖屏下仍按竖屏渲染">退出横屏适配</button>
+
+<script type="module">
+/* 直接相对路径 import：不依赖 importmap（iOS Safari <16.4 / 旧微信 WebView 可用） */
+import * as THREE from './vendor/three.module.js';
+import { OrbitControls } from './vendor/OrbitControls.js';
+/* 牌面贴图改为复用 2D 已有的位图（frontend/assets/tiles-img.js → tiles3d.js 等比留边适配） */
+import { faceTexture, backTexture, sideTexture } from '../frontend/assets/tiles3d.js';
+
+/* ---------- 兼容与错误可视化（移动端/旧 WebView 排查用） ---------- */
+// roundRect polyfill：iOS Safari <16.4 / 旧 WebView 没有 Canvas2D.roundRect
+if (!CanvasRenderingContext2D.prototype.roundRect) {
+  CanvasRenderingContext2D.prototype.roundRect = function (x, y, w, h, r) {
+    const rr = Math.min(r, w / 2, h / 2);
+    this.moveTo(x + rr, y);
+    this.arcTo(x + w, y, x + w, y + h, rr);
+    this.arcTo(x + w, y + h, x, y + h, rr);
+    this.arcTo(x, y + h, x, y, rr);
+    this.arcTo(x, y, x + w, y, rr);
+    this.closePath();
+    return this;
+  };
+}
+// 任何未捕获错误都显示在页面上（手机端看到红条可截图反馈，不再是一片绿）
+function showFatal(msg) {
+  let d = document.getElementById('fatal');
+  if (!d) {
+    d = document.createElement('div');
+    d.id = 'fatal';
+    d.style.cssText = 'position:fixed;left:8px;right:8px;top:8px;z-index:99;background:#7f1d1d;color:#fff;'
+      + 'font:12px/1.5 monospace;padding:8px;border-radius:6px;white-space:pre-wrap;word-break:break-all;'
+      + 'max-height:40%;overflow:auto';
+    document.body.appendChild(d);
+  }
+  d.textContent = '页面错误：' + msg;
+}
+window.addEventListener('error', (e) => showFatal(e.message || String(e.error)));
+window.addEventListener('unhandledrejection', (e) => showFatal(String(e.reason)));
+
+/* ============================================================
+ * 1. 牌的定义（136 张：筒/条/万 108 + 字牌 东南西北中发白 28）
+ *    每家门口码 17 墩（一墩两张平摞），四家共 68 墩
+ * ============================================================ */
+/* 尺寸（米）：牌面宽高比 0.045/0.062≈0.726，与牌面贴图 256×352(0.727)精确匹配，图案不变形 */
+const TILE_W = 0.045, TILE_H = 0.062, TILE_D = 0.026, TILE_GAP = 0.004; // 面宽/面高/厚/间距
+const STEP_HAND = TILE_W + TILE_GAP;       // 手牌步进
+const STEP_DISCARD = TILE_W + 0.008;       // 弃牌步进
+const TABLE_Y = 0;                  // 牌面基准高度
+/* 牌墙：每家门 17 墩、墩距=牌宽靠紧，四段在角上相连成方环；
+   环位于各家手牌前方（朝桌心一侧）：手牌贴桌边 → 副露 → 牌墙环 → 桌心弃牌区 */
+const WALL_STACKS = 17;                     // 每家门口墩数（136 张 = 68 墩）
+const WALL_LAYER = TILE_D;                  // 墩内上下层 y 差（全厚不嵌入，两张清晰可辨）
+const WALL_HALF = WALL_STACKS * TILE_W / 2; // 环半宽=半深=0.3825（方环，固定不随桌形变）
+let WALL_HALF_X = WALL_HALF;                // 环 S/N 边半宽（= 17 墩×墩宽/2）
+let WALL_HALF_Z = WALL_HALF;                // 环 S/N 边对桌心偏移；E/W 边半深
+let TABLE_HX = -1, TABLE_HZ = -1;           // 内容半宽/半深（= CONTENT_*，-1=待初始化）
+let SEAT_PX = 0.663, SEAT_PZ = 0.397;       // 座位组世界坐标（环外 SEAT_OFF），updateSeatPositions 维护
+const WALL_E_OUT = TILE_H / 2;              // E/W 边中心线外移量：角上与 S/N 边墙面相接（不重叠）
+/* 环式紧凑布局：手牌紧贴牌墙环外侧（不再甩到桌边），副露在手牌与墙之间，弃牌在环内桌心。
+   座位组（手牌中心）到环中心线偏移 = 墙半厚 0.031 + 副露间隙 0.035 + 副露半厚 0.031 + 手牌间隙 0.05 */
+const SEAT_OFF = 0.147;
+/* 内容半宽/半深（环 + 副露 + 各家手牌 + 留量）：固定值，相机按画布比例自适应取景 */
+const CONTENT_HX = WALL_HALF_X + WALL_E_OUT + SEAT_OFF + 0.033;
+const CONTENT_HZ = WALL_HALF_Z + SEAT_OFF + 0.033;
+/* 相机：俯仰约 49° 的固定方向；距离 = max(内容入画, 自家手牌正面可见) 自适应 */
+const CAM_DIR = [0, 1.15, 1.0];             // 目标→相机方向（y:z = 1.15:1）
+const CAM_MIN_DIST = 1.15;                  // 保自家手牌正面视角（相机 z ≥ 手牌 + ~0.3）
+/* 副露：吃/碰 3 张、杠 4 张；渲染在自己座位左上方（局部 -x、-z 一侧） */
+const MELD_N = { chow: 3, pung: 3, kong: 4 };
+const SUITS = ['bamboo', 'circle', 'character'];       // 条 / 筒 / 万
+const CN_NUM = ['一','二','三','四','五','六','七','八','九'];
+/* 字牌：东南西北中发白（中=红中癞子，金色呼吸光） */
+const HONORS = [
+  { id: 'dong',  text: '東', color: '#1a3a5c' },
+  { id: 'nan',   text: '南', color: '#1a3a5c' },
+  { id: 'xi',    text: '西', color: '#1a3a5c' },
+  { id: 'bei',   text: '北', color: '#1a3a5c' },
+  { id: 'zhong', text: '中', color: '#c0392b', red: true },
+  { id: 'fa',    text: '發', color: '#1d6a3f' },
+  { id: 'bai',   text: '',   color: '#1a3a5c' },   // 白板：蓝框无字
+];
+
+function buildTiles() {
+  const tiles = [];
+  for (const s of SUITS)
+    for (let r = 1; r <= 9; r++)
+      for (let c = 0; c < 4; c++) tiles.push({ id: `${s}-${r}`, suit: s, rank: r });
+  for (const h of HONORS)
+    for (let c = 0; c < 4; c++) tiles.push({ id: h.id, suit: 'honor', rank: 0, red: !!h.red });
+  return tiles;
+}
+const ALL_TILES = buildTiles();
+
+/* ============================================================
+ * 2. 程序化牌面贴图（Canvas 2D → CanvasTexture，零美术资源）
+ * ============================================================ */
+const texCache = new Map();
+function faceCanvas(tile) {
+  const c = document.createElement('canvas');
+  c.width = 256; c.height = 352;
+  const g = c.getContext('2d');
+  // 底
+  g.fillStyle = '#f6f0dd'; g.fillRect(0, 0, 256, 352);
+  g.strokeStyle = '#1d5c3f'; g.lineWidth = 10;
+  g.beginPath(); g.roundRect(14, 14, 228, 324, 26); g.stroke();
+
+  if (tile.suit === 'circle') {          // 筒
+    const pos = circleLayout(tile.rank);
+    g.fillStyle = '#1a5fb4';
+    for (const [x, y] of pos) {
+      g.beginPath(); g.arc(x, y, 30, 0, Math.PI * 2); g.fill();
+      g.strokeStyle = '#0b3d75'; g.lineWidth = 5; g.stroke();
+    }
+  } else if (tile.suit === 'bamboo') {   // 条
+    const pos = bambooLayout(tile.rank);
+    g.strokeStyle = '#2e8b57'; g.lineWidth = 14; g.lineCap = 'round';
+    for (const [x, y] of pos) {
+      g.beginPath(); g.moveTo(x, y - 26); g.lineTo(x, y + 26); g.stroke();
+    }
+    if (tile.rank === 1) {  // 一条画鸟形示意
+      g.fillStyle = '#c0392b';
+      g.beginPath(); g.arc(128, 176, 12, 0, Math.PI * 2); g.fill();
+    }
+  } else if (tile.suit === 'character') { // 万
+    g.fillStyle = '#b03a2e'; g.textAlign = 'center';
+    g.font = 'bold 92px "PingFang SC","Microsoft YaHei",serif';
+    g.fillText(CN_NUM[tile.rank - 1], 128, 168);
+    g.font = 'bold 96px "PingFang SC","Microsoft YaHei",serif';
+    g.fillText('萬', 128, 292);
+  } else if (tile.suit === 'honor') {    // 字牌：东南西北中发白
+    const h = HONORS.find(x => x.id === tile.id);
+    g.textAlign = 'center';
+    if (tile.id === 'bai') {             // 白板：蓝双框无字
+      g.strokeStyle = '#1a3a5c'; g.lineWidth = 12;
+      g.beginPath(); g.roundRect(46, 46, 164, 260, 14); g.stroke();
+      g.lineWidth = 5;
+      g.beginPath(); g.roundRect(66, 66, 124, 220, 10); g.stroke();
+    } else {
+      g.fillStyle = h.color;
+      g.font = 'bold 150px "PingFang SC","Microsoft YaHei",serif';
+      g.fillText(h.text, 128, 252);
+    }
+  }
+  return c;
+}
+function circleLayout(r) {
+  const cx = 128, cy = 176;
+  const P = (x, y) => [x, y];
+  switch (r) {
+    case 1: return [P(cx, cy)];
+    case 2: return [P(cx, cy - 62), P(cx, cy + 62)];
+    case 3: return [P(cx - 66, cy - 66), P(cx, cy), P(cx + 66, cy + 66)];
+    case 4: return [P(cx - 60, cy - 62), P(cx + 60, cy - 62), P(cx - 60, cy + 62), P(cx + 60, cy + 62)];
+    case 5: return [P(cx - 62, cy - 62), P(cx + 62, cy - 62), P(cx, cy), P(cx - 62, cy + 62), P(cx + 62, cy + 62)];
+    case 6: return [P(cx - 60, cy - 62), P(cx + 60, cy - 62), P(cx - 60, cy), P(cx + 60, cy), P(cx - 60, cy + 62), P(cx + 60, cy + 62)];
+    case 7: return [P(cx - 62, cy - 80), P(cx, cy - 62), P(cx + 62, cy - 80), P(cx - 62, cy + 10), P(cx + 62, cy + 10), P(cx - 62, cy + 90), P(cx + 62, cy + 90)];
+    case 8: return [P(cx - 60, cy - 80), P(cx + 60, cy - 80), P(cx - 60, cy - 30), P(cx + 60, cy - 30), P(cx - 60, cy + 30), P(cx + 60, cy + 30), P(cx - 60, cy + 80), P(cx + 60, cy + 80)];
+    case 9: return [P(cx - 60, cy - 80), P(cx, cy - 80), P(cx + 60, cy - 80), P(cx - 60, cy), P(cx, cy), P(cx + 60, cy), P(cx - 60, cy + 80), P(cx, cy + 80), P(cx + 60, cy + 80)];
+  }
+}
+function bambooLayout(r) {
+  const cx = 128, cy = 176;
+  const P = (x, y) => [x, y];
+  switch (r) {
+    case 1: return [P(cx, cy)];
+    case 2: return [P(cx - 50, cy - 62), P(cx + 50, cy + 62)];
+    case 3: return [P(cx - 60, cy - 66), P(cx + 60, cy - 66), P(cx, cy + 62)];
+    case 4: return [P(cx - 60, cy - 62), P(cx + 60, cy - 62), P(cx - 60, cy + 62), P(cx + 60, cy + 62)];
+    case 5: return [P(cx - 62, cy - 62), P(cx + 62, cy - 62), P(cx, cy), P(cx - 62, cy + 62), P(cx + 62, cy + 62)];
+    case 6: return [P(cx - 60, cy - 62), P(cx + 60, cy - 62), P(cx - 60, cy), P(cx + 60, cy), P(cx - 60, cy + 62), P(cx + 60, cy + 62)];
+    case 7: return [P(cx - 62, cy - 80), P(cx, cy - 62), P(cx + 62, cy - 80), P(cx - 62, cy + 10), P(cx + 62, cy + 10), P(cx - 62, cy + 90), P(cx + 62, cy + 90)];
+    case 8: return [P(cx - 62, cy - 80), P(cx + 62, cy - 80), P(cx - 62, cy - 28), P(cx + 62, cy - 28), P(cx - 62, cy + 30), P(cx + 62, cy + 30), P(cx - 62, cy + 84), P(cx + 62, cy + 84)];
+    case 9: return [P(cx - 60, cy - 80), P(cx, cy - 80), P(cx + 60, cy - 80), P(cx - 60, cy), P(cx, cy), P(cx + 60, cy), P(cx - 60, cy + 80), P(cx, cy + 80), P(cx + 60, cy + 80)];
+  }
+}
+function backCanvas() {
+  const c = document.createElement('canvas');
+  c.width = 256; c.height = 352;
+  const g = c.getContext('2d');
+  g.fillStyle = '#14532d'; g.fillRect(0, 0, 256, 352);
+  g.strokeStyle = '#e8dfc8'; g.lineWidth = 6;
+  g.beginPath(); g.roundRect(26, 26, 204, 300, 18); g.stroke();
+  return c;
+}
+function sideCanvas() {
+  const c = document.createElement('canvas');
+  c.width = 256; c.height = 96;
+  const g = c.getContext('2d');
+  g.fillStyle = '#d8c9a8'; g.fillRect(0, 0, 256, 96);
+  return c;
+}
+function getTexture(key, maker) {
+  if (!texCache.has(key)) {
+    const t = new THREE.CanvasTexture(maker());
+    t.colorSpace = THREE.SRGBColorSpace;
+    t.anisotropy = 4;
+    texCache.set(key, t);
+  }
+  return texCache.get(key);
+}
+/* 3D 牌 id → 引擎编码 0..33（贴图键位），用于复用 tiles-img 位图 */
+const TILE_CODE = { dong: 27, nan: 28, xi: 29, bei: 30, zhong: 31, fa: 32, bai: 33 };
+function codeOf(tile) {
+  if (tile.suit === 'character') return tile.rank - 1;         // 万 0..8
+  if (tile.suit === 'circle') return 9 + tile.rank - 1;        // 筒 9..17
+  if (tile.suit === 'bamboo') return 18 + tile.rank - 1;       // 条 18..26
+  return TILE_CODE[tile.id];
+}
+/* 贴图来源：正式位图（tiles3d.js）。getTexture/faceCanvas 仅作骰子等程序化兜底保留 */
+const TEX = {
+  back: () => backTexture(),
+  side: () => sideTexture(),
+  face: (tile) => faceTexture(codeOf(tile)),
+};
+
+/* ============================================================
+ * 3. 场景基础
+ * ============================================================ */
+const IS_TOUCH = matchMedia('(pointer: coarse)').matches;   // 手机/平板降级开关
+const app = document.getElementById('app');
+let renderer;
+try {
+  renderer = new THREE.WebGLRenderer({ antialias: !IS_TOUCH, powerPreference: 'default' });
+} catch (err) {
+  showFatal('WebGL 初始化失败：' + err.message + '（当前浏览器可能不支持 WebGL2）');
+  throw err;
+}
+renderer.setSize(innerWidth, innerHeight);
+renderer.setPixelRatio(Math.min(devicePixelRatio, IS_TOUCH ? 1.5 : 2));
+// 旧设备/旧 WebView 只有 WebGL1：three r180 已移除 WebGL1 支持，给明确提示而不是一片绿
+if (!renderer.capabilities.isWebGL2) {
+  showFatal('当前浏览器不支持 WebGL2（需 iOS Safari 15+ / Chrome 56+），请升级后重试');
+}
+renderer.setPixelRatio(Math.min(devicePixelRatio, IS_TOUCH ? 1.5 : 2));
+renderer.shadowMap.enabled = !IS_TOUCH;          // 移动端 GPU（软件渲染）关阴影，防上下文丢失
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+app.appendChild(renderer.domElement);
+// GPU 内存不足时上下文会被系统回收——原来直接变绿屏，现在给明确提示
+renderer.domElement.addEventListener('webglcontextlost', (e) => {
+  e.preventDefault();
+  showFatal('WebGL 上下文丢失（GPU 内存不足），请关闭其他标签页后刷新');
+});
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color('#0f3d28');
+
+const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.05, 50);
+camera.position.set(0, 0.91, 0.80);   // 方向 y:z = 1.15:1（俯仰约 49°），距离由 applyOrientation 自适应
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(0, 0, 0.08); // 注视点略偏向自己一侧，手牌更近更大
+controls.enablePan = false;
+controls.minDistance = 0.7;
+controls.maxDistance = 2.2;
+controls.maxPolarAngle = 1.25;
+controls.update();
+
+scene.add(new THREE.AmbientLight(0xffffff, IS_TOUCH ? 0.85 : 0.55));
+const hemi = new THREE.HemisphereLight(0xfff6e0, 0x1d5c3f, IS_TOUCH ? 0.55 : 0.4);
+scene.add(hemi);
+const dir = new THREE.DirectionalLight(0xffffff, 1.1);
+dir.position.set(1.2, 2.2, 0.8);
+dir.castShadow = !IS_TOUCH;
+dir.shadow.mapSize.set(IS_TOUCH ? 1024 : 2048, IS_TOUCH ? 1024 : 2048);
+dir.shadow.camera.left = -1.5; dir.shadow.camera.right = 1.5;
+dir.shadow.camera.top = 1.5; dir.shadow.camera.bottom = -1.5;
+scene.add(dir);
+
+// （圆形桌面已按需求移除；其他家手牌不立牌，桌面保留：牌墙环 + 自己手牌 + 各家弃牌/副露）
+
+/* ============================================================
+ * 4. 牌的 3D 实体
+ * ============================================================ */
+const tileGeo = new THREE.BoxGeometry(TILE_W, TILE_H, TILE_D);
+// 全局共享材质：侧面/背面/牌面（按 tile.id 缓存），避免 112 张牌 = 672 个材质实例
+const SIDE_MAT = new THREE.MeshStandardMaterial({ map: TEX.side(), roughness: 0.8 });
+const BACK_MAT = new THREE.MeshStandardMaterial({ map: TEX.back(), roughness: 0.85 });
+const faceMatCache = new Map();
+function faceMatOf(tile) {
+  if (!faceMatCache.has(tile.id)) {
+    const m = new THREE.MeshStandardMaterial({ map: TEX.face(tile), roughness: 0.8 });
+    if (tile.red) {           // 红中癞子：金色自发光呼吸
+      m.emissive = new THREE.Color(0xffd700);
+      m.emissiveIntensity = 0.35;
+    }
+    faceMatCache.set(tile.id, m);
+  }
+  return faceMatCache.get(tile.id);
+}
+function createTileMesh(tile, faceUp) {
+  const face = faceUp ? faceMatOf(tile) : BACK_MAT;
+  // BoxGeometry 材质顺序: [+X, -X, +Y, -Y, +Z(牌面), -Z]
+  const mesh = new THREE.Mesh(tileGeo, [SIDE_MAT, SIDE_MAT, BACK_MAT, SIDE_MAT, face, BACK_MAT]);
+  mesh.castShadow = true;
+  mesh.userData.tile = tile;
+  return mesh;
+}
+
+/* 座位布局：局部坐标里牌沿 x 排开、牌面朝 +z，组绕 Y 旋转 */
+const SEATS = [
+  { key: 'S', name: '我',   yaw: 0,            pos: [0, 0, 0.40],  faceUp: true  },
+  { key: 'E', name: '下家', yaw: -Math.PI / 2, pos: [0.40, 0, 0],  faceUp: false },
+  { key: 'N', name: '对家', yaw: Math.PI,      pos: [0, 0, -0.40], faceUp: false },
+  { key: 'W', name: '上家', yaw: Math.PI / 2,  pos: [-0.40, 0, 0], faceUp: false },
+];
+
+const hands = {};   // seat -> [mesh]
+const discards = {}; // seat -> [mesh]
+const seatGroups = {};
+for (const s of SEATS) {
+  const g = new THREE.Group();
+  g.position.set(...s.pos);
+  g.rotation.y = s.yaw;
+  scene.add(g);
+  seatGroups[s.key] = g;
+  hands[s.key] = [];
+  discards[s.key] = [];
+}
+// 座位组位置跟随牌墙环（固定方环）：手牌紧贴环外侧；副露在手牌与墙之间；弃牌首行在环内侧（朝桌心）
+function updateSeatPositions() {
+  SEAT_PX = WALL_HALF_X + WALL_E_OUT + SEAT_OFF;
+  SEAT_PZ = WALL_HALF_Z + SEAT_OFF;
+  seatGroups.S.position.set(0, 0, SEAT_PZ);
+  seatGroups.N.position.set(0, 0, -SEAT_PZ);
+  seatGroups.E.position.set(SEAT_PX, 0, 0);
+  seatGroups.W.position.set(-SEAT_PX, 0, 0);
+  // 副露区：牌墙环外侧（靠自家一侧），与墙外面保持间隙
+  // 注意 N 家 yaw=π：局部 +z → 世界 -z，故 N 与 S 用同一局部 z 式；E/W 同式
+  const mz = WALL_HALF_Z + 0.066, mx = WALL_HALF_X + WALL_E_OUT + 0.066;
+  meldGroups.S.position.z = mz - SEAT_PZ;
+  meldGroups.N.position.z = mz - SEAT_PZ;
+  meldGroups.E.position.z = SEAT_PX - mx;
+  meldGroups.W.position.z = SEAT_PX - mx;
+  // 弃牌槽：首行落在牌墙环内侧（桌心侧），各行朝桌心步进
+  const dz = WALL_HALF_Z - 0.066, dx = WALL_HALF_X - 0.035;
+  discardSlots.S.position.z = dz - SEAT_PZ;
+  discardSlots.N.position.z = dz - SEAT_PZ;
+  discardSlots.E.position.z = SEAT_PX - dx;
+  discardSlots.W.position.z = SEAT_PX - dx;
+}
+const DISC_ROW_STEP = { S: -1, N: -1, E: 1, W: 1 };   // 弃牌行步进方向（局部 z，各自朝桌心）
+/* 每行张数：行宽不超出牌墙环内侧缺口（窄桌面自动收窄行宽） */
+function discardPerRow(seatKey) {
+  const gap = (seatKey === 'E' || seatKey === 'W') ? 2 * (WALL_HALF_Z - TILE_H / 2) : 2 * WALL_HALF_X;
+  return Math.max(4, Math.min(8, Math.floor((gap - 0.02) / STEP_DISCARD) + 1));
+}
+const discardSlots = {}; // 每家的出牌区（局部 z 由 updateSeatPositions 按牌墙环位置重排）
+for (const s of SEATS) {
+  const dg = new THREE.Group();
+  dg.position.set(0, TABLE_Y, 0);
+  seatGroups[s.key].add(dg);
+  discardSlots[s.key] = dg;
+}
+
+/* 手牌布局：自家(S)亮开满间距；其余三家背面紧凑牌列（立牌，贴自家桌边） */
+function handStep(seatKey) { return seatKey === 'S' ? STEP_HAND : STEP_HAND * 0.7; }
+const HAND_CAP = { S: 14, E: 13, N: 13, W: 13 };   // 配牌后各家人手上限（庄 14 / 闲 13）
+/* 左端基准：未满容量时固定（发牌逐张右延，不重排已在飞的牌）；超出容量后继续右延 */
+function handLeft(seatKey, n) {
+  const step = handStep(seatKey);
+  const cap = HAND_CAP[seatKey] || 13;
+  return -((cap - 1) * step) / 2 + Math.max(0, n - cap) * step;
+}
+function layoutHand(seatKey) {
+  const arr = hands[seatKey];
+  const step = handStep(seatKey);
+  const left = handLeft(seatKey, arr.length);
+  arr.forEach((m, i) => {
+    killTweens(m.position);
+    tween(m.position, { x: left + i * step, y: TABLE_Y + TILE_H / 2, z: 0 }, 0.14, 'easeOut');
+  });
+}
+/* 发牌/摸牌入手：新牌从墙位飞入、排在右端（不触发整手重排，避免打断在飞动画） */
+function dealTileTo(seatKey, tile, animateFrom) {
+  const seat = SEATS.find(s => s.key === seatKey);
+  const mesh = createTileMesh(tile, seat.faceUp);
+  mesh.userData.seat = seatKey;
+  mesh.userData.inHand = true;
+  seatGroups[seatKey].add(mesh);
+  hands[seatKey].push(mesh);
+  const step = handStep(seatKey);
+  const n = hands[seatKey].length;
+  const tx = handLeft(seatKey, n) + (n - 1) * step;
+  if (animateFrom) {
+    const wp = animateFrom.clone();
+    seatGroups[seatKey].worldToLocal(wp);
+    mesh.position.copy(wp);
+    tween(mesh.position, { x: tx, y: TABLE_Y + TILE_H / 2, z: 0 }, 0.38, 'easeOut');
+  } else {
+    mesh.position.set(tx, TABLE_Y + TILE_H / 2, 0);
+  }
+  return mesh;
+}
+function addToHand(seatKey, tile, animateFrom) {
+  const mesh = dealTileTo(seatKey, tile, animateFrom);
+  layoutHand(seatKey);   // 整手重新居中（摸牌/补牌后）
+  return mesh;
+}
+function discardTile(seatKey, mesh) {
+  const arr = hands[seatKey];
+  const idx = arr.indexOf(mesh);
+  if (idx < 0) return null;
+  arr.splice(idx, 1);
+  layoutHand(seatKey);
+  const dArr = discards[seatKey];
+  const slot = discardSlots[seatKey];
+  const perRow = discardPerRow(seatKey);
+  const row = Math.floor(dArr.length / perRow);
+  const col = dArr.length % perRow;
+  const inRow = Math.min(perRow, dArr.length + 1);
+  const totalW = (inRow - 1) * STEP_DISCARD;
+  const localX = -totalW / 2 + col * STEP_DISCARD;
+  const localZ = DISC_ROW_STEP[seatKey] * row * (TILE_H + 0.008);  // 平放后长边沿 z，行间朝桌心错开
+  // 脱离座位组，放到弃牌组
+  const wp = new THREE.Vector3();
+  mesh.getWorldPosition(wp);
+  seatGroups[seatKey].remove(mesh);
+  slot.add(mesh);
+  dArr.push(mesh);
+  // 飞行动画：先取消该牌未完成的 tween，再从「当前世界坐标」补间到槽位
+  killTweens(mesh.position);
+  killTweens(mesh.rotation);
+  const start = wp.clone();
+  slot.worldToLocal(start);
+  mesh.position.copy(start);
+  mesh.rotation.set(0, 0, 0);
+  mesh.material[4] = faceMatOf(mesh.userData.tile);   // 翻面亮牌（对家手牌本是背面）
+  tween(mesh.position, { x: localX, y: TILE_W / 2 + 0.001, z: localZ }, 0.35, 'easeOut');
+  tween(mesh.rotation, { x: -Math.PI / 2 }, 0.35, 'easeOut');
+  mesh.userData.inHand = false;
+  return mesh;
+}
+
+/* ============================================================
+ * 5. 轻量 tween
+ * ============================================================ */
+const tweens = [];
+function tween(obj, to, dur, ease = 'linear') {
+  const from = {};
+  for (const k in to) from[k] = obj[k];
+  tweens.push({ obj, from, to, t: 0, dur, ease });
+}
+// 取消某个对象上未完成的 tween，防止 hover/飞行动画互相打架
+function killTweens(obj) {
+  for (let i = tweens.length - 1; i >= 0; i--) if (tweens[i].obj === obj) tweens.splice(i, 1);
+}
+function updateTweens(dt) {
+  for (let i = tweens.length - 1; i >= 0; i--) {
+    const tw = tweens[i];
+    tw.t += dt;
+    const p = Math.min(tw.t / tw.dur, 1);
+    const e = tw.ease === 'easeOut' ? 1 - Math.pow(1 - p, 3) : p;
+    for (const k in tw.to) tw.obj[k] = tw.from[k] + (tw.to[k] - tw.from[k]) * e;
+    if (p >= 1) tweens.splice(i, 1);
+  }
+}
+
+/* ============================================================
+ * 6. 牌墙环：136 张 = 68 墩，每家门 17 墩（一墩两张平摞）
+ *    环序（顺时针 = 牌山方向）：从 S 家右手边那墩起
+ *      S(16→0) → W(0→16) → N(16→0) → E(0→16)
+ *    座位序（逆时针）：S(庄) → E(下) → N(对) → W(上)，与牌山方向相反
+ * ============================================================ */
+const RING_SEATS = ['S', 'W', 'N', 'E'];                  // 顺时针段序
+function ringOrder() {
+  const ord = [];
+  for (const seat of RING_SEATS)
+    for (let k = 0; k < WALL_STACKS; k++) {
+      // S/N 家右手在局部 x 正向端（d=16），顺时针往左手=递减；W/E 家右手在 d=0，顺时针递增
+      const d = (seat === 'S' || seat === 'N') ? WALL_STACKS - 1 - k : k;
+      ord.push({ seat, d });
+    }
+  return ord;
+}
+const RING = ringOrder();                                 // 68 个 {seat, d}（固定）
+const RING_BASE = { S: 0, W: WALL_STACKS, N: 2 * WALL_STACKS, E: 3 * WALL_STACKS };
+function ringIndexOf(seat, cwIdx) { return RING_BASE[seat] + cwIdx; }  // 该家右手起第 cwIdx+1 墩
+
+let wallRing = [];        // 每墩 {seat, d, tiles:[底层,上层], meshes:[m0,m1]}
+let wallLeft = 0;         // 牌墙剩余张数
+let drawPtr = 0;          // 牌局摸牌指针（环序；配牌后指向下一墩）
+const wallStacks = {};    // seat -> { group, label }
+for (const s of SEATS) wallStacks[s.key] = { group: null, label: null };
+
+/* 张数标签（Canvas → Sprite，取牌后重绘文字） */
+function wallLabelSprite() {
+  const c = document.createElement('canvas');
+  c.width = 128; c.height = 128;
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false }));
+  sp.scale.set(0.05, 0.05, 0.05);
+  sp.userData.canvas = c;
+  sp.userData.tex = tex;
+  return sp;
+}
+function drawWallLabel(sp, n) {
+  const g = sp.userData.canvas.getContext('2d');
+  g.clearRect(0, 0, 128, 128);
+  g.beginPath(); g.arc(64, 64, 56, 0, Math.PI * 2);
+  g.fillStyle = 'rgba(10,40,26,0.88)'; g.fill();
+  g.strokeStyle = '#e8dfc8'; g.lineWidth = 5; g.stroke();
+  g.fillStyle = '#ffe9a8'; g.textAlign = 'center';
+  g.font = 'bold 64px "PingFang SC","Microsoft YaHei",sans-serif';
+  g.fillText(String(n), 64, 86);
+  sp.userData.tex.needsUpdate = true;
+}
+/* 建墙：洗牌后按环序每墩发两张（底层/上层），平放面朝上挂到该家座位组（朝向自动跟随） */
+function buildWall() {
+  const deck = [...ALL_TILES].sort(() => Math.random() - 0.5);
+  wallRing = RING.map(r => ({
+    seat: r.seat, d: r.d,
+    tiles: [deck.pop(), deck.pop()],          // [底层, 上层]
+    meshes: [null, null],
+  }));
+  wallLeft = wallRing.length * 2;
+  for (const s of SEATS) {
+    const st = wallStacks[s.key];
+    if (st.group && st.group.parent) st.group.parent.remove(st.group);
+    const g = new THREE.Group();
+    seatGroups[s.key].add(g);                 // 挂座位组：牌向跟随各家（与自家手牌/弃牌同向）
+    wallStacks[s.key] = { group: g, label: null };
+  }
+  wallRing.forEach(stk => {
+    for (let layer = 0; layer < 2; layer++) {
+      const mesh = createTileMesh(stk.tiles[layer], false);
+      mesh.rotation.set(-Math.PI / 2, 0, 0);  // 平放、面朝上、长边沿局部 z=该家面朝方向
+      const [x, y, z] = wallSlotPos(stk.seat, stk.d, layer);
+      mesh.position.set(x, y, z);
+      mesh.castShadow = true;
+      wallStacks[stk.seat].group.add(mesh);
+      stk.meshes[layer] = mesh;
+    }
+  });
+  for (const s of SEATS) {
+    const label = wallLabelSprite();
+    wallStacks[s.key].group.add(label);       // 位置由 updateWallLabels 重算
+    wallStacks[s.key].label = label;
+  }
+  updateWallLabels();
+}
+/* 段内第 (d 墩, layer 层) 的位置（seat 局部坐标）：
+   墩沿桌边切向（局部 x）以墩宽=牌宽靠紧连续排开，墩内两张上下全厚摞（层距=整牌厚），
+   长边沿局部 z = 该家面朝方向——与自己的手牌/弃牌/副露方向一致；
+   整环位于桌心、在手牌前方（S/N 局部 z 为负=朝桌心；E/W 局部 z 为正=朝桌心） */
+function wallSlotPos(seatKey, d, layer) {
+  const x = -WALL_HALF_X + (d + 0.5) * TILE_W;             // 墩距=牌宽：靠紧无缝隙
+  const y = TILE_D / 2 + layer * WALL_LAYER;               // 两层：0.013 / 0.039，均落地清晰可辨
+  const z = (seatKey === 'S' || seatKey === 'N') ? WALL_HALF_Z - SEAT_PZ   // N 家 yaw=π：局部 +z→世界 -z，与 S 同式
+          : SEAT_PX - WALL_HALF_X - WALL_E_OUT;            // E/W：中心线外移半牌长，角上与 S/N 边相接
+  return [x, y, z];
+}
+/* 桌形变化后墙环世界位置不变，仅因座位组移动而重排局部坐标（不重建、不重新发牌） */
+function relayoutWall() {
+  wallRing.forEach(stk => {
+    for (let layer = 0; layer < 2; layer++) {
+      const mesh = stk.meshes[layer];
+      if (!mesh) continue;
+      const [x, y, z] = wallSlotPos(stk.seat, stk.d, layer);
+      killTweens(mesh.position);
+      mesh.position.set(x, y, z);
+    }
+  });
+  updateWallLabels();
+}
+function updateWallLabels() {
+  for (const s of SEATS) {
+    const st = wallStacks[s.key];
+    if (!st || !st.label) continue;
+    const stacks = wallRing.filter(k => k.seat === s.key);
+    const n = stacks.reduce((a, k) => a + (k.meshes[0] ? 1 : 0) + (k.meshes[1] ? 1 : 0), 0);
+    drawWallLabel(st.label, n);
+    // 张数标签浮在现存牌分布中点上方（段缩短时跟随，不悬空）
+    const xs = [];
+    for (const k of stacks) if (k.meshes[0] || k.meshes[1]) xs.push(wallSlotPos(s.key, k.d, 0)[0]);
+    const mx = xs.length ? (Math.min(...xs) + Math.max(...xs)) / 2 : 0;
+    const wz = wallSlotPos(s.key, 0, 0)[2];
+    st.label.position.set(mx, 0.068, wz);
+  }
+}
+function seatWallCount(seatKey) {
+  return wallRing.filter(k => k.seat === seatKey)
+    .reduce((a, k) => a + (k.meshes[0] ? 1 : 0) + (k.meshes[1] ? 1 : 0), 0);
+}
+/* 取环序第 ringIdx 墩的某一层（layer 1=上层/0=下层）；返回世界坐标供飞牌动画 */
+function takeWallTile(ringIdx, layer) {
+  const stk = wallRing[ringIdx];
+  const mesh = stk.meshes[layer];
+  if (!mesh) return null;
+  stk.meshes[layer] = null;
+  wallLeft--;
+  const wp = mesh.getWorldPosition(new THREE.Vector3());   // 取世界坐标后再移出段组
+  mesh.parent && mesh.parent.remove(mesh);
+  updateWallLabels();
+  return { tile: stk.tiles[layer], mesh, ringIdx, layer, worldPos: wp };
+}
+/* 取整墩：先取上层再取下层（墩位不动，取光后该墩消失，环保持连续） */
+function takeStack(ringIdx) {
+  const out = [];
+  const top = takeWallTile(ringIdx, 1);
+  if (top) out.push(top);
+  const bot = takeWallTile(ringIdx, 0);
+  if (bot) out.push(bot);
+  return out;
+}
+/* 牌局摸牌：从摸牌指针顺环序取（先上层后下层，取光进阶），绕回起点即墙尽 */
+function drawNext() {
+  if (wallLeft <= 0) return null;
+  for (let guard = 0; guard < RING.length; guard++) {
+    const stk = wallRing[drawPtr];
+    if (stk.meshes[1]) return takeWallTile(drawPtr, 1);
+    if (stk.meshes[0]) return takeWallTile(drawPtr, 0);
+    drawPtr = (drawPtr + 1) % RING.length;
+  }
+  return null;
+}
+/* 兼容旧调用名：从牌墙摸一张（顺序由环序决定，与哪家无关） */
+function takeTileFromWall() { return drawNext(); }
+/* ============================================================
+ * 6b. 掷骰子：庄家掷两颗骰子，点数和 n 决定起手家与起手墩
+ * ============================================================ */
+const DICE_SIZE = 0.034;
+const diceGeo = new THREE.BoxGeometry(DICE_SIZE, DICE_SIZE, DICE_SIZE);
+const PIPS = {
+  1: [[0.5, 0.5]],
+  2: [[0.28, 0.28], [0.72, 0.72]],
+  3: [[0.28, 0.28], [0.5, 0.5], [0.72, 0.72]],
+  4: [[0.28, 0.28], [0.72, 0.28], [0.28, 0.72], [0.72, 0.72]],
+  5: [[0.28, 0.28], [0.72, 0.28], [0.5, 0.5], [0.28, 0.72], [0.72, 0.72]],
+  6: [[0.28, 0.24], [0.72, 0.24], [0.28, 0.5], [0.72, 0.5], [0.28, 0.76], [0.72, 0.76]],
+};
+function diceCanvas(v) {
+  const c = document.createElement('canvas');
+  c.width = c.height = 128;
+  const g = c.getContext('2d');
+  g.fillStyle = '#f6f0dd'; g.fillRect(0, 0, 128, 128);
+  g.strokeStyle = 'rgba(0,0,0,.28)'; g.lineWidth = 4;
+  g.beginPath(); g.roundRect(4, 4, 120, 120, 18); g.stroke();
+  g.fillStyle = v === 1 ? '#c0392b' : '#1a1a1a';
+  for (const [fx, fy] of PIPS[v]) {
+    g.beginPath(); g.arc(fx * 128, fy * 128, 13, 0, Math.PI * 2); g.fill();
+  }
+  return c;
+}
+function diceMaterials() {
+  // BoxGeometry 材质序 [+x,-x,+y,-y,+z,-z] → 面值 [3,4,1,6,2,5]（对面点和为 7）
+  return [3, 4, 1, 6, 2, 5].map(v => new THREE.MeshStandardMaterial({
+    map: getTexture('dice:' + v, () => diceCanvas(v)), roughness: 0.3, metalness: 0.05,
+  }));
+}
+/* 让面值 v 朝上的静止旋转 */
+function diceRestRot(v) {
+  switch (v) {
+    case 1: return [0, 0, 0];
+    case 2: return [-Math.PI / 2, 0, 0];
+    case 3: return [0, 0, Math.PI / 2];
+    case 4: return [0, 0, -Math.PI / 2];
+    case 5: return [Math.PI / 2, 0, 0];
+    case 6: return [Math.PI, 0, 0];
+  }
+}
+let diceMeshes = [];
+let diceResult = null;
+function rollDice() {
+  return new Promise(resolve => {
+    const v1 = 1 + Math.floor(Math.random() * 6);
+    const v2 = 1 + Math.floor(Math.random() * 6);
+    removeDice();
+    diceMeshes = [];
+    for (let i = 0; i < 2; i++) {
+      const m = new THREE.Mesh(diceGeo, diceMaterials());
+      m.castShadow = true;
+      // 庄家（S 家）掷出：从自家前方抛出，翻滚落入桌心环内
+      m.position.set(i === 0 ? -0.10 : 0.10, 0.20, SEAT_PZ - 0.06);
+      m.rotation.set(Math.random() * Math.PI * 2, Math.random() * Math.PI * 2, Math.random() * Math.PI * 2);
+      scene.add(m);
+      diceMeshes.push(m);
+    }
+    const rest = [diceRestRot(v1), diceRestRot(v2)];
+    const land = [[-0.07 - Math.random() * 0.03, DICE_SIZE / 2 + 0.002, 0.12 + Math.random() * 0.05],
+                  [0.05 + Math.random() * 0.03, DICE_SIZE / 2 + 0.002, 0.12 + Math.random() * 0.05]];
+    diceMeshes.forEach((m, i) => {
+      killTweens(m.position); killTweens(m.rotation);
+      tween(m.position, { x: land[i][0], y: land[i][1], z: land[i][2] }, 0.85, 'easeOut');
+      tween(m.rotation, { x: rest[i][0] + Math.PI * 8, y: rest[i][1] + Math.PI * 6, z: rest[i][2] }, 0.85, 'easeOut');
+    });
+    setTimeout(() => resolve([v1, v2]), 880);
+  });
+}
+function removeDice() {
+  for (const m of diceMeshes) { killTweens(m.position); killTweens(m.rotation); m.parent && m.parent.remove(m); }
+  diceMeshes = [];
+}
+function seatName(key) { const s = SEATS.find(x => x.key === key); return s ? s.name : key; }
+/* 点数和 n → 起手家：1/5/9 庄家(S)，2/6/10 下家(E)，3/7/11 对家(N)，4/8/12 上家(W) */
+function diceSeat(n) {
+  const m = n % 4;
+  return m === 1 ? 'S' : m === 2 ? 'E' : m === 3 ? 'N' : 'W';
+}
+/* 起手墩：从该家右手边往左手边数到第 n 墩（1 基；骰点和 2~12 ≤ 17，必落在本家段内） */
+function diceStartRing(n) { return ringIndexOf(diceSeat(n), n - 1); }
+let startMarker = null;
+function showStartMarker(n) {
+  hideStartMarker();
+  const stk = wallRing[diceStartRing(n)];
+  if (!stk) return;
+  const [x, , z] = wallSlotPos(stk.seat, stk.d, 1);
+  const ring = new THREE.Mesh(
+    new THREE.RingGeometry(0.024, 0.033, 28),
+    new THREE.MeshBasicMaterial({ color: 0xffe9a8, transparent: true, opacity: 0.95, depthTest: false, side: THREE.DoubleSide })
+  );
+  ring.rotation.x = -Math.PI / 2;
+  ring.position.set(x, 0.060, z);
+  ring.renderOrder = 5;
+  seatGroups[stk.seat].add(ring);
+  startMarker = ring;
+}
+function hideStartMarker() {
+  if (startMarker) { startMarker.parent && startMarker.parent.remove(startMarker); startMarker = null; }
+}
+
+/* ============================================================
+ * 6c. 配牌流程（标准麻将）：
+ *   掷骰定起手 → 三轮「座位逆时针序、每家取两墩」→ 庄家跳牌
+ *   （跳牌只是庄家多摸一张：取下一墩上方一张 + 隔一墩后再取下一墩上方一张）
+ *   → 补单张：下家从庄家摸的第一张牌下面那张（跳牌第一墩的墩底）开始摸，
+ *     再依牌山顺序：对家取被跳过墩的上方、上家取被跳过墩的墩底
+ *     （被跳过的中间墩必须摸光，不留摸不走的牌）
+ *   → 庄 14 张、闲家各 13 张（共 53 张），牌墙剩 83 张；
+ *   跳牌第一墩与被跳过墩摸光，跳牌第二墩剩墩底 1 张，紧邻摸牌指针
+ * ============================================================ */
+const DEAL_SEATS = ['S', 'E', 'N', 'W'];      // 座位逆时针序：庄→下→对→上
+const DEAL_STEP_MS = 130;                     // 每一步（一次取牌动作）间隔
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+function dealPlan(n) {
+  const start = diceStartRing(n);
+  const steps = [];
+  let g = 0;
+  for (let r = 0; r < 3; r++)
+    for (const seat of DEAL_SEATS) {
+      steps.push({ seat, kind: 'pair', at: [start + g, start + g + 1] }); g += 2;
+    }
+  // 跳牌：庄家多摸一张 = 取下一墩上方 + 隔一墩后的上方（中间那一墩被跳过）
+  steps.push({ seat: 'S', kind: 'tiao', at: [start + g, start + g + 2] });
+  g += 3;   // g = 27：跳牌占了 24上/26上，中间 25 未被庄家取
+  // 补单张：下家从「庄家摸的第一张牌下面那张」（= 跳牌第一墩 start+24 的墩底）开始摸，
+  // 再依牌山顺序：对家 = 被跳过墩 start+25 的上方，上家 = start+25 的墩底（中间墩摸光，
+  // 不留摸不走的牌）；跳牌第二墩 start+26 剩墩底，紧邻摸牌指针，下一张即摸走
+  const singles = [
+    { ring: start + g - 3, layer: 0 },   // start+24 墩底 = 庄家跳牌第一张的下面
+    { ring: start + g - 2, layer: 1 },   // start+25 上方（被跳过的那墩）
+    { ring: start + g - 2, layer: 0 },   // start+25 墩底
+  ];
+  ['E', 'N', 'W'].forEach((seat, i) =>
+    steps.push({ seat, kind: 'single', at: [singles[i].ring], layer: singles[i].layer }));
+  return { start, steps, next: (start + g - 1) % RING.length };   // 下一墩 = start+26（剩墩底）
+}
+let dealLog = [];        // 调试/测试：实际取牌顺序 [{seat, ring, layer}]
+let dealDone = false;
+async function runDeal(plan) {
+  dealLog = [];
+  drawPtr = plan.next;
+  for (const st of plan.steps) {
+    const takes = st.kind === 'pair'
+      ? [...takeStack(st.at[0] % RING.length), ...takeStack(st.at[1] % RING.length)]
+      : st.kind === 'tiao'
+        ? [takeWallTile(st.at[0] % RING.length, 1), takeWallTile(st.at[1] % RING.length, 1)]
+        : [takeWallTile(st.at[0] % RING.length, st.layer == null ? 1 : st.layer)];   // single：取指定层一张
+    for (const t of takes) {
+      if (!t) continue;
+      dealLog.push({ seat: st.seat, ring: t.ringIdx, layer: t.layer });
+      dealTileTo(st.seat, t.tile, t.worldPos);
+    }
+    updateHud();
+    await sleep(DEAL_STEP_MS);
+  }
+}
+async function startGame() {
+  for (const s of SEATS) {
+    for (const m of [...hands[s.key], ...discards[s.key]]) m.parent && m.parent.remove(m);
+    hands[s.key] = []; discards[s.key] = [];
+    clearMelds(s.key);
+  }
+  removeDice(); hideStartMarker();
+  dealDone = false; diceResult = null;
+  buildWall();
+  setMsg('庄家掷骰子…');
+  updateHud();
+  const [v1, v2] = await rollDice();
+  const n = v1 + v2;
+  diceResult = [v1, v2];
+  showStartMarker(n);
+  setMsg(`掷骰 ${v1} + ${v2} = ${n} → ${seatName(diceSeat(n))}起 · 从该家右手第 ${n} 墩开始发牌`);
+  updateHud();
+  await sleep(700);
+  hideStartMarker();
+  await runDeal(dealPlan(n));
+  removeDice();
+  setMsg('配牌完成 · 庄家先出牌（悬停手牌抬起，点击出牌）');
+  updateHud();
+  dealDone = true;
+}
+function shuffleDeal() { return startGame(); }   // 兼容旧名（重开）
+// 对家从手牌打出一张（模拟引擎广播的 discard；对家手牌此时是背面紧凑牌列，打出即翻面）
+function opponentDiscard(seatKey) {
+  const arr = hands[seatKey];
+  if (!arr.length) return null;
+  const mesh = arr[Math.floor(Math.random() * arr.length)];
+  return discardTile(seatKey, mesh);
+}
+
+/* ============================================================
+ * 6b. 副露（吃/碰/杠）：只渲染自己家，位于座位局部左上方
+ *     局部坐标：-x = 左手侧，-z = 朝桌心侧，y 抬高一档立牌亮牌
+ * ============================================================ */
+const melds = {};            // seat -> [{ type, tiles:[tile], meshes:[mesh] }]
+const meldGroups = {};       // seat -> Group
+for (const s of SEATS) {
+  melds[s.key] = [];
+  const g = new THREE.Group();
+  seatGroups[s.key].add(g);
+  meldGroups[s.key] = g;
+}
+const MELD_STEP = TILE_W + 0.002;
+// 副露区中心（世界坐标）由 updateSeatPositions 按牌墙环位置写入各 meldGroups 的局部 z
+function clearMelds(seatKey) {
+  for (const m of melds[seatKey]) {
+    for (const mesh of m.meshes) {
+      killTweens(mesh.position);
+      killTweens(mesh.rotation);
+      mesh.parent && mesh.parent.remove(mesh);
+    }
+  }
+  melds[seatKey] = [];
+}
+/* 新增一副副露（type: chow/pung/kong）；牌从牌墙取，平放亮牌 */
+function addMeld(type, seatKey = 'S') {
+  const n = MELD_N[type];
+  if (!n) return null;
+  const group = meldGroups[seatKey];
+  const startX = -0.33;     // 从手牌左端起排，多副向右依次接龙，整体不超桌面
+  const used = melds[seatKey].reduce((a, m) => a + m.meshes.length, 0);
+  const offset = used * MELD_STEP + melds[seatKey].length * 0.02;
+  const entry = { type, tiles: [], meshes: [] };
+  for (let i = 0; i < n; i++) {
+    const t = drawNext();
+    if (!t) break;
+    entry.tiles.push(t.tile);
+    const mesh = t.mesh;
+    mesh.material[4] = faceMatOf(t.tile);        // 翻面亮牌
+    group.add(mesh);
+    const wp = t.worldPos.clone();
+    group.worldToLocal(wp);
+    mesh.position.copy(wp);
+    const tx = startX + offset + i * MELD_STEP;
+    killTweens(mesh.position);
+    killTweens(mesh.rotation);
+    tween(mesh.position, { x: tx, y: TILE_D / 2 + 0.001, z: 0 }, 0.4, 'easeOut');
+    // 平放展示：与牌墙同向（长边沿局部 z = 该家面朝方向，和自己方向一致）
+    tween(mesh.rotation, { x: -Math.PI / 2, z: 0 }, 0.4, 'easeOut');
+    entry.meshes.push(mesh);
+  }
+  if (!entry.meshes.length) return null;
+  melds[seatKey].push(entry);
+  return entry;
+}
+
+/* ============================================================
+ * 7. 引擎对接层（WebSocket 客户端，协议示例见 README）
+ *    - 接入真实引擎时：本地 mock 的函数改为「收到服务端消息后调用」
+ *    - 前端只做表现：不持有规则状态，出牌/吃碰杠全部问引擎
+ * ============================================================ */
+class GameClient {
+  constructor(url) { this.url = url; this.ws = null; this.handlers = {}; }
+  on(evt, cb) { this.handlers[evt] = cb; }
+  emit(evt, data) { this.handlers[evt] && this.handlers[evt](data); }
+  connect() {
+    this.ws = new WebSocket(this.url);
+    this.ws.onmessage = (e) => { try { this.emit(JSON.parse(e.data).type, JSON.parse(e.data)); } catch (_) {} };
+    this.ws.onclose = () => setMsg('与引擎断开，重连中…');
+  }
+  send(obj) { this.ws && this.ws.readyState === 1 && this.ws.send(JSON.stringify(obj)); }
+  // 约定消息（与 Node 引擎对齐）：
+  // -> { type:'join', room, player }
+  // -> { type:'discard', tile }            // 玩家出牌
+  // -> { type:'action', action:'pung|kong|win|pass' }
+  // <- { type:'deal', hands:{S:[...],E:[...]}, dealer }
+  // <- { type:'draw', seat, tile }          // 摸牌（摸到红中=癞子）
+  // <- { type:'discard', seat, tile }
+  // <- { type:'meld', seat, kind:'chow|pung|kong', tiles:[...] } // 副露亮牌
+  // <- { type:'turn', seat, actions:[...] } // 当前可执行动作
+  // <- { type:'win', seat, hand, pattern }  // 胡牌牌型（七对/清一色等）
+}
+// const client = new GameClient('ws://127.0.0.1:8787/mahjong');
+
+/* ============================================================
+ * 8. 交互：hover 抬升 + 点击出牌
+ * ============================================================ */
+const raycaster = new THREE.Raycaster();
+const pointer = new THREE.Vector2();
+let hovered = null;
+const HAND_LIFT = 0.035;
+
+/* NDC 用 canvas 的逻辑尺寸：横屏/竖屏横显（旋转 90°）下都正确 */
+function ndcFromEvent(e) {
+  const w = renderer.domElement.clientWidth || innerWidth;
+  const h = renderer.domElement.clientHeight || innerHeight;
+  return [(e.clientX / w) * 2 - 1, -(e.clientY / h) * 2 + 1];
+}
+
+renderer.domElement.addEventListener('pointermove', (e) => {
+  const [nx, ny] = ndcFromEvent(e);
+  pointer.set(nx, ny);
+  raycaster.setFromCamera(pointer, camera);
+  const hits = raycaster.intersectObjects(hands['S'], false);
+  const m = hits.length ? hits[0].object : null;
+  if (m !== hovered) {
+    if (hovered) tween(hovered.position, { y: TABLE_Y + TILE_H / 2 }, 0.12, 'easeOut');
+    hovered = m;
+    if (hovered) tween(hovered.position, { y: TABLE_Y + TILE_H / 2 + HAND_LIFT }, 0.12, 'easeOut');
+  }
+});
+let downX = 0, downY = 0;
+renderer.domElement.addEventListener('pointerdown', (e) => { downX = e.clientX; downY = e.clientY; });
+renderer.domElement.addEventListener('pointerup', (e) => {
+  if (Math.hypot(e.clientX - downX, e.clientY - downY) > 6) return; // 拖动旋转视角，不算出牌
+  if (hovered && hovered.userData.inHand) {
+    const tile = hovered.userData.tile;
+    const mesh = hovered;
+    hovered = null;
+    discardTile('S', mesh);
+    setMsg(`打出 ${tileName(tile)}`);
+    updateHud();
+  }
+});
+const HONOR_NAME = { dong: '东风', nan: '南风', xi: '西风', bei: '北风', zhong: '红中(癞子)', fa: '发财', bai: '白板' };
+function tileName(t) {
+  if (t.suit === 'honor') return HONOR_NAME[t.id] || t.id;
+  const suitName = { bamboo: '条', circle: '筒', character: '万' }[t.suit];
+  return CN_NUM[t.rank - 1] + suitName;
+}
+
+/* ============================================================
+ * 9. HUD
+ * ============================================================ */
+const hudTL = document.getElementById('hud-tl');
+const hudTR = document.getElementById('hud-tr');
+const hudMsg = document.getElementById('hud-msg');
+function setMsg(t) { hudMsg.textContent = t; }
+function updateHud() {
+  const n = diceResult ? diceResult[0] + diceResult[1] : null;
+  hudTL.innerHTML =
+    `<span class="tag">麻将 136 张</span>庄家 <b>我</b>（先出牌）<br>` +
+    `我的手牌 <b>${hands.S.length}</b> 张` +
+    (melds.S.length ? ` · 副露 <b>${melds.S.length}</b> 副` : '') + `<br>` +
+    SEATS.filter(s => s.key !== 'S').map(s => `${s.name}手牌 ${hands[s.key].length} · 弃牌 ${discards[s.key].length}`).join('<br>');
+  hudTR.innerHTML =
+    `牌墙剩余 <b>${wallLeft}</b> 张<br>` +
+    `各家墙：${SEATS.map(s => `${s.name}${seatWallCount(s.key)}`).join(' ')}<br>` +
+    (n !== null ? `掷骰 <b>${diceResult[0]}+${diceResult[1]}=${n}</b> → ${seatName(diceSeat(n))}起<br>` : '') +
+    `已出 ${SEATS.reduce((a, s) => a + discards[s.key].length, 0)} 张 · 拖动旋转 / 滚轮缩放`;
+}
+
+/* 按钮 */
+document.getElementById('btn-draw').onclick = () => {
+  const t = drawNext();
+  if (!t) return setMsg('牌墙已空');
+  addToHand('S', t.tile, t.worldPos);
+  setMsg('摸牌');
+  updateHud();
+};
+const MELD_SEQ = ['chow', 'pung', 'kong'];
+let meldIdx = 0;
+document.getElementById('btn-meld').onclick = () => {
+  const type = MELD_SEQ[meldIdx % MELD_SEQ.length];
+  const cn = { chow: '吃', pung: '碰', kong: '杠' }[type];
+  const entry = addMeld(type);
+  if (!entry) return setMsg('牌墙已空，无法副露');
+  meldIdx++;
+  setMsg(`${cn}副露 ${entry.meshes.length} 张（左上方亮牌）`);
+  updateHud();
+};
+document.getElementById('btn-opp').onclick = () => {
+  const seats = ['E', 'N', 'W'];
+  const s = seats[Math.floor(Math.random() * seats.length)];
+  if (!opponentDiscard(s)) return setMsg('牌墙已空');
+  updateHud();
+};
+document.getElementById('btn-restart').onclick = () => shuffleDeal();
+
+/* ============================================================
+ * 10. 主循环
+ * ============================================================ */
+const clock = new THREE.Clock();
+renderer.setAnimationLoop(() => {
+  const dt = Math.min(clock.getDelta(), 0.05);
+  updateTweens(dt);
+  // 红中癞子呼吸光（只改自家亮开的牌面材质；背面共用材质无 emissive，跳过）
+  const t = clock.elapsedTime;
+  for (const s of SEATS) for (const m of hands[s.key]) {
+    if (m.userData.tile.red && m.material[4].emissive) m.material[4].emissiveIntensity = 0.35 + Math.sin(t * 3) * 0.2;
+  }
+  controls.update();
+  renderer.render(scene, camera);
+});
+
+/* ============================================================
+ * 9. 竖屏横显：手机上竖着拿也按横屏渲染
+ *    - 触屏 + 竖屏 + 未退出适配 => #app 旋转 90°，按横屏尺寸绘制
+ *    - 指针/触摸事件映射回容器局部坐标后重派发（raycast / OrbitControls 方向才正确）
+ * ============================================================ */
+let portraitAdapt = false;
+let rotOptOut = false;
+let lastAdapt = undefined;
+let lastFrameAspect = -1;
+try { rotOptOut = localStorage.getItem('mj-rot-optout') === '1'; } catch (e) {}
+
+/* 投影式取景：把内容 8 角 + 自家手牌前沿投到 NDC，任一点超界就沿当前视线按比例拉远（迭代收敛）。
+   解析式估算算不到近处手牌的透视放大，必须靠实测投影兜底 */
+function frameContent() {
+  const pts = [];
+  for (const x of [-CONTENT_HX, CONTENT_HX])
+    for (const z of [-CONTENT_HZ, CONTENT_HZ])
+      for (const y of [0, 0.075]) pts.push(new THREE.Vector3(x, y, z));
+  for (const x of [-0.36, 0.36]) pts.push(new THREE.Vector3(x, 0.075, SEAT_PZ + 0.02));  // 自家手牌最前沿
+  for (let it = 0; it < 4; it++) {
+    camera.updateMatrixWorld();
+    let maxAbs = 0;
+    for (const p of pts) {
+      const v = p.clone().project(camera);
+      maxAbs = Math.max(maxAbs, Math.abs(v.x), Math.abs(v.y));
+    }
+    if (maxAbs <= 0.96) return;
+    const dir = camera.position.clone().sub(controls.target);
+    camera.position.copy(controls.target).add(dir.multiplyScalar((maxAbs / 0.96) * 1.03));
+    controls.update();
+  }
+}
+
+function applyOrientation() {
+  const isCoarse = matchMedia('(pointer: coarse)').matches;
+  portraitAdapt = isCoarse && innerHeight > innerWidth && !rotOptOut;
+  const w = portraitAdapt ? innerHeight : innerWidth;   // 横屏逻辑宽
+  const h = portraitAdapt ? innerWidth : innerHeight;   // 横屏逻辑高
+  renderer.setSize(w, h);
+  // 竖屏横显：canvas 以自身中心旋转 90°，视觉正好铺满屏幕（无负定位，规避 WebView 渲染 bug）
+  renderer.domElement.style.transform = portraitAdapt
+    ? 'translate(-50%, -50%) rotate(90deg)'
+    : 'translate(-50%, -50%)';
+  const aspect = w / h;
+  if (TABLE_HX < 0) {                       // 首次：内容尺寸固定，座位/牌墙一次排布
+    TABLE_HX = CONTENT_HX; TABLE_HZ = CONTENT_HZ;
+    updateSeatPositions();
+    relayoutWall();
+  }
+  // fov：竖屏横显收窄放大内容；窄视口（未旋转的竖窗）放宽保证桌深入画
+  camera.fov = portraitAdapt ? 42 : (aspect < 0.95 ? 56 : 50);
+  camera.aspect = aspect;
+  camera.updateProjectionMatrix();
+  // 相机距离：先按内容尺寸估算，再用投影法收敛（内容 8 角 + 自家手牌前沿投到 NDC，超界按比例拉远）；
+  // 仅首次或画布比例明显变化时调整，不覆盖用户旋转/缩放后的视角
+  const vFov = camera.fov * Math.PI / 180;
+  const need = Math.max(
+    CONTENT_HX / (Math.tan(vFov / 2) * aspect),
+    CONTENT_HZ * 0.80 / Math.tan(vFov / 2),   // 0.80≈sin(俯仰角)：桌深投影修正
+    CAM_MIN_DIST);
+  if (Math.abs(aspect - lastFrameAspect) > 0.02) {   // 首次(lastFrameAspect=-1)或比例明显变化
+    lastFrameAspect = aspect;
+    const camDir = camera.position.clone().sub(controls.target);
+    camera.position.copy(controls.target).add(camDir.setLength(need));
+    frameContent();
+  }
+  document.body.classList.toggle('portrait-adapt', portraitAdapt);
+  // 模式切换时才归位视角（不覆盖用户旋转/缩放后的视角）
+  if (portraitAdapt !== lastAdapt) {
+    controls.target.set(0, 0, 0.08);
+    controls.update();
+    lastAdapt = portraitAdapt;
+  }
+  // 尝试请求系统横屏（仅 Android Chrome 全屏/已安装 PWA 有效；失败静默）
+  if (portraitAdapt && screen.orientation && screen.orientation.lock) {
+    try { Promise.resolve(screen.orientation.lock('landscape')).catch(() => {}); } catch (e) {}
+  }
+}
+addEventListener('resize', applyOrientation);
+addEventListener('orientationchange', () => { setTimeout(applyOrientation, 120); setTimeout(applyOrientation, 500); });
+if (window.visualViewport) visualViewport.addEventListener('resize', applyOrientation);
+
+/* 事件坐标映射：屏幕 (sx,sy) -> 容器局部 (sy, W - sx) */
+if (window.PointerEvent) {
+  for (const t of ['pointerdown', 'pointermove', 'pointerup', 'pointercancel']) {
+    window.addEventListener(t, (e) => {
+      if (!portraitAdapt || e.__mjFwd) return;
+      // HUD 按钮放行（否则按钮永远点不到）；其余一律拦截并转发映射后的事件
+      if (e.target && e.target.closest && e.target.closest('#btn-rot, #hud-bar')) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const ev = new PointerEvent(t, {
+        clientX: e.clientY, clientY: innerWidth - e.clientX,
+        pointerId: e.pointerId, pointerType: e.pointerType, isPrimary: e.isPrimary,
+        button: e.button, buttons: e.buttons, bubbles: true, cancelable: true,
+      });
+      ev.__mjFwd = true;
+      renderer.domElement.dispatchEvent(ev);
+    }, { capture: true, passive: false });
+  }
+}
+document.getElementById('btn-rot').onclick = () => {
+  rotOptOut = true;
+  try { localStorage.setItem('mj-rot-optout', '1'); } catch (e) {}
+  applyOrientation();
+};
+applyOrientation();
+
+startGame();   // 掷骰 → 定起手 → 按标准流程配牌（庄 14 / 闲 13）
+
+// 调试/自动化测试出口
+window.__mj = { scene, camera, renderer, controls, hands, discards, melds, wallRing, RING, wallStacks, SEATS, THREE,
+  drawNext, takeTileFromWall, addMeld, discardTile, addToHand, dealTileTo, seatGroups, wallSlotPos,
+  diceSeat, diceStartRing, ringIndexOf, dealPlan, discardPerRow, startGame, seatWallCount, seatName,
+  getHovered: () => hovered,
+  get wallLeft() { return wallLeft; },
+  get wallHalf() { return [WALL_HALF_X, WALL_HALF_Z]; },
+  get tableHalf() { return [TABLE_HX, TABLE_HZ]; },
+  get contentHalf() { return [CONTENT_HX, CONTENT_HZ]; },
+  get seatPos() { return [SEAT_PX, SEAT_PZ]; },
+  get dealDone() { return dealDone; },
+  get dealLog() { return dealLog; },
+  get diceResult() { return diceResult; },
+  get diceMeshes() { return diceMeshes; },
+  get drawPtr() { return drawPtr; } };
+</script>
+</body>
+</html>

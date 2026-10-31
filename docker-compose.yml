@@ -1,0 +1,52 @@
+# 武汉麻将 网络对战服务 —— Docker Compose
+#
+# 快速开始：
+#   1) cp .env.example .env   并按需改（至少要设 JWT_SECRET）
+#   2) docker compose up -d --build
+#   3) 浏览器打开 http://<主机IP>:3000/     （验证台）
+#                 http://<主机IP>:3000/app  （单机版牌桌）
+#
+# 群晖 / 威联通：把本目录放到共享文件夹，用「Container Manager / Container Station」
+# 的「项目（Compose）」导入本文件即可。详见 docs/deploy.md。
+
+services:
+  mahjon:
+    build:
+      context: .
+      args:
+        # 国内加速：NPM_REGISTRY=https://registry.npmmirror.com
+        NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmjs.org/}
+    image: mahjon:latest
+    container_name: mahjon
+    restart: unless-stopped
+    # 镜像内已用 tini；此处再兜底 PID 1 转发（二者并存无害）
+    init: true
+    ports:
+      # 宿主机端口可用 MAHJON_PORT 改（NAS 上 3000 可能被占用）
+      - "${MAHJON_PORT:-3000}:3000"
+    environment:
+      PORT: 3000
+      HOST: 0.0.0.0
+      DATA_DIR: /data
+      # 必填：没有它会用开发默认值，务必在 .env 里设强随机串
+      JWT_SECRET: ${JWT_SECRET:?请在 .env 中设置 JWT_SECRET（可用 openssl rand -hex 32 生成）}
+      TOKEN_TTL: ${TOKEN_TTL:-7d}
+      # 留空 = 回显来源（局域网够用）；填域名 = 只放行白名单，多个逗号分隔
+      CORS_ORIGIN: ${CORS_ORIGIN:-}
+      ALLOW_THIRD_PARTY_AVATAR: ${ALLOW_THIRD_PARTY_AVATAR:-false}
+    volumes:
+      # 默认用「具名卷」（docker volume，便于统一备份）。
+      # NAS 上更推荐改成共享文件夹绝对路径，例如：
+      #   DATA_PATH=/volume1/docker/mahjon
+      # 注意目录属主需可写（容器内以 uid 1000 运行）：chown -R 1000:1000 <目录>
+      - ${DATA_PATH:-mahjon-data}:/data
+    # NAS 上若共享文件夹属主不是 1000，可显式指定运行用户：
+    # user: "1026:100"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  mahjon-data:

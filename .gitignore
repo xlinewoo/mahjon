@@ -1,0 +1,32 @@
+# 依赖
+node_modules/
+
+# 运行时数据（账号库 + 头像）——不入库
+server/data/
+*.db
+*.db-shm
+*.db-wal
+
+# 密钥与本地配置
+.env
+.env.*
+!.env.example
+
+# 日志 / 系统文件
+*.log
+.DS_Store
+Thumbs.db
+
+# 本机探针残留
+frontend/__probe*.cjs
+frontend/build/__wtest.txt
+
+# 用户提供的大体积美术源（构建产物 frontend/assets/tiles-art*.js 保留）
+148麻将子拆分/
+010麻将图标/
+
+# 本地缓存与项目数据（不入库）
+.codegraph/
+.workbuddy/
+.cache/
+.zcode/
