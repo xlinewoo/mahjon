@@ -773,6 +773,9 @@ function renderMembers(members) {
   }
   const leaveBtn = $('btn-leave-club');
   if (leaveBtn) leaveBtn.hidden = !S.club || S.club.role === 'owner';
+  // 删除俱乐部（2026-10-31）：仅主席可见
+  const delClubBtn = $('btn-delete-club');
+  if (delClubBtn) delClubBtn.hidden = !S.club || S.club.role !== 'owner';
   $('invite-form').hidden = !canManage;
   if (!canManage) note('status-club', '只有主席 / 管理员能邀请成员', true);
 }
@@ -801,6 +804,35 @@ async function leaveClub() {
     showLobby('clubs');
     await loadClubs();
     note('status-clubs', '已退出俱乐部', true);
+  } catch (e) {
+    note('status-club', e.message);
+  }
+}
+
+/** 删除牌桌（房主；桌上有人的时候后端拒绝） */
+async function deleteTable(t) {
+  if (!S.club) return;
+  if (!confirm(`确定删除牌桌「${t.name}」？该桌的回放会一并删除（个人累计战绩不受影响）。`)) return;
+  try {
+    await api(`/api/tables/${t.id}`, 'DELETE');
+    note('status-club', `已删除牌桌「${t.name}」`, true);
+    await openClub(S.club.id);
+  } catch (e) {
+    note('status-club', e.message);
+  }
+}
+
+/** 删除俱乐部（主席；俱乐部内任一牌桌有人时后端拒绝）。级联删成员/申请/俱乐部战绩/牌桌，个人累计战绩保留 */
+async function deleteClub() {
+  if (!S.club) return;
+  if (!confirm(`确定删除俱乐部「${S.club.name}」？\n所有成员与牌桌将一并删除，俱乐部战绩榜不再保留（你的个人累计战绩不受影响）。此操作不可撤销！`)) return;
+  const id = S.club.id;
+  try {
+    await api(`/api/clubs/${id}`, 'DELETE');
+    note('status-clubs', `已删除俱乐部「${S.club.name}」`, true);
+    S.club = null;
+    showLobby('clubs');
+    await loadClubs();
   } catch (e) {
     note('status-club', e.message);
   }
@@ -850,6 +882,15 @@ function renderTables(tables) {
       editBtn.textContent = '改规则';
       editBtn.addEventListener('click', () => startEditRules(t).catch((e) => note('status-club', e.message)));
       el.appendChild(editBtn);
+    }
+    // 2026-10-31：房主可删除牌桌；桌上有人的时候后端返回 409（不让删）
+    if (isOwner) {
+      const delBtn = document.createElement('button');
+      delBtn.className = 'lb-btn warn';
+      delBtn.type = 'button';
+      delBtn.textContent = '删除';
+      delBtn.addEventListener('click', () => deleteTable(t).catch((e) => note('status-club', e.message)));
+      el.appendChild(delBtn);
     }
     box.appendChild(el);
   }
@@ -1653,6 +1694,8 @@ function wire() {
   // 成员区展开/收起（默认收起，老吴 2026-10-24）
   const leaveClubBtn = $('btn-leave-club');
   if (leaveClubBtn) leaveClubBtn.addEventListener('click', leaveClub);
+  const delClubBtn = $('btn-delete-club');
+  if (delClubBtn) delClubBtn.addEventListener('click', deleteClub);
   $('btn-toggle-members').addEventListener('click', () => {
     const box = $('members-box');
     if (box) box.hidden = !box.hidden;

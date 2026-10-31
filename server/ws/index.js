@@ -10,7 +10,7 @@
 import { Server } from 'socket.io';
 import db, { recordHandStats, recordHandRows, recordCareerStats, saveHandReplay, inTransaction } from '../db.js';
 import { userFromToken } from '../auth.js';
-import { RoomManager, SEATS } from './room.js';
+import { SEATS, rooms } from './room.js';
 
 // 已托管座位「周期巡检」间隔：轮到托管座位 / 等下一把时，按此间隔驱动代打与自动 ready。
 // 取代过去按 dissolveMs 倒计时才巡检的做法（那会让托管轮次最多延迟到判离席点才动牌）。
@@ -29,7 +29,7 @@ export function attachSocket(httpServer) {
     ? process.env.CORS_ORIGIN.split(',').map((s) => s.trim()).filter(Boolean)
     : true;
   const io = new Server(httpServer, { path: '/play', cors: { origin: corsOrigin } });
-  const rooms = new RoomManager();
+  // rooms 为全局单例（room.js 导出），REST 层删除牌桌/俱乐部时也要查「桌上是否有人」。
 
   const tableRow = (id) => db.prepare('SELECT * FROM tables WHERE id = ?').get(id);
   const isMember = (clubId, uid) =>

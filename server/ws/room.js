@@ -842,3 +842,11 @@ export class RoomManager {
     this.rooms.delete(id);
   }
 }
+
+/**
+ * 全局单例：内存房间表（按 tableId 索引）。
+ * 旧实现里 RoomManager 在 ws/index.js 内 `new` 出来，REST 层（routes/*.js）拿不到，
+ * 导致「桌上有没有人」只能靠 DB 的 tables.status 猜（区分不了「已入座未开局」与「空桌」）。
+ * 抽成单例后，REST 删除牌桌/俱乐部时能直接查 `rooms.get(tableId)` 判断当前是否有人。
+ */
+export const rooms = new RoomManager();

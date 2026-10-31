@@ -1,8 +1,9 @@
 // 俱乐部路由：创建 / 我的列表 / 详情（含成员）/ 邀请成员
 import db from '../db.js';
-import { personalStats, clubStatsByPeriod } from '../db.js';
+import { personalStats, clubStatsByPeriod, inTransaction } from '../db.js';
 import { requireAuth } from '../auth.js';
 import { clubById, membershipOf, publicClub, canManage, textNameProblem } from './_helpers.js';
+import { rooms } from '../ws/room.js';
 import { createRateLimiter, clientIp, tooMany } from '../rate-limit.js';
 
 /** 允许的时段枚举（防注入：只认这四个，其余一律当 all） */
@@ -294,6 +295,36 @@ export default async function clubRoutes(app) {
     if (!me) return reply.code(404).send({ error: '不是俱乐部成员' });
     if (me.role === 'owner') return reply.code(400).send({ error: '主席不能退出俱乐部' });
     db.prepare('DELETE FROM club_members WHERE club_id = ? AND user_id = ?').run(id, req.user.id);
+    return reply.send({ ok: true });
+  });
+
+  /**
+   * 删除俱乐部（2026-10-31 新增）：仅主席；俱乐部内任一牌桌有人时拒绝。
+   * 级联删除：成员 / 待审申请 / 俱乐部战绩榜（player_stats＝「俱乐部战绩不保存」）/
+   *          牌桌及其回放（hand_replays）/ 该俱乐部的每把流水（hand_records）。
+   * 个人累计战绩 user_career_stats 无 club 外键、不受影响 —— 「个人战绩保留」。
+   * 注意：hand_records / hand_replays 都带 club_id 外键且 PRAGMA foreign_keys=ON，
+   * 不删它们就无法删 clubs 行，所以此处一并删除（个人时段明细随之移除，累计生涯保留）。
+   */
+  app.delete('/api/clubs/:id', { preHandler: requireAuth }, async (req, reply) => {
+    const id = Number(req.params.id);
+    const club = clubById(id);
+    if (!club) return reply.code(404).send({ error: '俱乐部不存在' });
+    if (club.owner_id !== req.user.id) return reply.code(403).send({ error: '只有主席能删除俱乐部' });
+    // 任一牌桌有人（已入座/进行中）→ 拒绝删除
+    const tableIds = db.prepare('SELECT id FROM tables WHERE club_id = ?').all(id).map((r) => r.id);
+    for (const tid of tableIds) {
+      if (rooms.get(tid)) return reply.code(409).send({ error: '俱乐部内有牌桌正在使用中，请等人离桌后再删' });
+    }
+    inTransaction(() => {
+      db.prepare('DELETE FROM club_members WHERE club_id = ?').run(id);
+      db.prepare('DELETE FROM club_applications WHERE club_id = ?').run(id);
+      db.prepare('DELETE FROM player_stats WHERE club_id = ?').run(id);   // 俱乐部战绩不保存
+      db.prepare('DELETE FROM hand_replays WHERE club_id = ?').run(id);
+      db.prepare('DELETE FROM hand_records WHERE club_id = ?').run(id);
+      db.prepare('DELETE FROM tables WHERE club_id = ?').run(id);
+      db.prepare('DELETE FROM clubs WHERE id = ?').run(id);
+    });
     return reply.send({ ok: true });
   });
 

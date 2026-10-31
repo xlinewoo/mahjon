@@ -3,6 +3,7 @@ import db from '../db.js';
 import { requireAuth } from '../auth.js';
 import { createRuleSet } from '../../src/engine/rules.js';
 import { clubById, membershipOf, publicClub, textNameProblem } from './_helpers.js';
+import { rooms } from '../ws/room.js';
 
 function publicTable(row) {
   return {
@@ -102,5 +103,23 @@ export default async function tableRoutes(app) {
     db.prepare('UPDATE tables SET rule_json = ?, circle_count = ? WHERE id = ?')
       .run(JSON.stringify(ruleset), cc, row.id);
     return reply.send({ ok: true, table: publicTable(tableRow(row.id)) });
+  });
+
+  /**
+   * 删除牌桌（2026-10-31 新增）：仅房主；桌上有任何人时拒绝。
+   * 「桌上有人」以内存房间是否存在为准（`rooms.get(tableId)`）——DB 的 tables.status
+   * 区分不了「已入座未开局」与「空桌」，所以用房间单例判定。
+   * 级联删该桌回放（hand_replays，外键 table_id）；**保留 hand_records**（个人战绩，
+   * 且 hand_records 无 table_id 列、不受本操作外键影响）。
+   */
+  app.delete('/api/tables/:id', { preHandler: requireAuth }, async (req, reply) => {
+    const row = tableRow(Number(req.params.id));
+    if (!row) return reply.code(404).send({ error: '牌桌不存在' });
+    if (row.owner_id !== req.user.id) return reply.code(403).send({ error: '只有房主能删除牌桌' });
+    // 桌上有任何人（已入座/进行中）→ 拒绝删除
+    if (rooms.get(row.id)) return reply.code(409).send({ error: '牌桌还有人在玩，请等人离桌后再删' });
+    db.prepare('DELETE FROM hand_replays WHERE table_id = ?').run(row.id);
+    db.prepare('DELETE FROM tables WHERE id = ?').run(row.id);
+    return reply.send({ ok: true });
   });
 }

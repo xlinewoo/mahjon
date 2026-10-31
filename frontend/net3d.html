@@ -89,6 +89,8 @@
           <button class="lb-btn ghost" id="btn-toggle-members" type="button">俱乐部成员</button>
           <!-- 退出俱乐部（2026-10-29）：非主席可见；主席不能退（俱乐部必须有主人） -->
           <button class="lb-btn ghost" id="btn-leave-club" type="button" hidden>退出俱乐部</button>
+          <!-- 删除俱乐部（2026-10-31）：仅主席可见；俱乐部内有牌桌有人时后端拒绝 -->
+          <button class="lb-btn warn" id="btn-delete-club" type="button" hidden>删除俱乐部</button>
         </div>
         <!-- 成员列表默认收起（老吴 2026-10-24）：点「俱乐部成员」才展开，再点收起 -->
         <div id="members-box" hidden>

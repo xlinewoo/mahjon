@@ -150,21 +150,20 @@ body:has(#play:not([hidden])) #host-controls .host-btn {
   background: transparent;
 }
 .wild-badge b {
-  /* 「赖」块：高度锁死成牌面高度（齐高）。字号是「反推」出来的 ——
-     实测 PingFang SC 800 的「赖」墨迹高 = 0.941em（不是想当然的 0.88），
-     要让**墨迹**正好等于牌面 52px，字号就该是 52 / 0.941 ≈ 55px（58px 会高出 2.6px、
-     字顶到黄块边沿）。若改 --wild-tile-h，字号按 1.058 × 新高度 同步改。
-     行框（55px）比块高（52px）多 3px，flex 居中后上下各留 1.5px，overflow visible 不裁字。 */
+  /* 「赖」块：高度锁死成牌面高度（齐高，永远等于 --wild-tile-h）。
+     老吴 2026-10-31：汉字太大、整体偏胖 → 字号 55 → 48（墨迹约 45px，块内上下各留 ~3.5px）、
+     左右内边距 5 → 3px（更瘦）。块高仍由 --wild-tile-h 决定，与牌面齐高不变；
+     只把字缩小、胶囊收窄，不动高度。 */
   box-sizing: border-box;
   height: var(--wild-tile-h);
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 0 5px;
+  padding: 0 3px;
   color: #0b3b26;
   background: #ffd34d;
   font-weight: 800;
-  font-size: 55px;
+  font-size: 48px;
   line-height: 1;
   border-radius: 9px;
   overflow: visible;
@@ -297,9 +296,9 @@ body:has(#play:not([hidden])) #host-controls .host-btn {
 }
 #table3d .r3d-seat-label[hidden] { display: none; }
 #table3d .r3d-seat-label .avatar {
-  width: 56px;      /* 与文末定义同值（同选择器后者覆盖前者，这里同步免得将来顺序一改就缩回去） */
-  height: 56px;
-  font-size: 23px;
+  width: 48px;      /* 2026-10-31 老吴：头像稍微小一点（与文末定义同步） */
+  height: 48px;
+  font-size: 20px;
   flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
@@ -373,7 +372,7 @@ html.in-play body.mode-3d #play .topbar {
   top: 6px;
   left: 8px;
   right: 8px;
-  z-index: 30;
+  z-index: 100;
   margin: 0;
   pointer-events: none;
   background: transparent;
@@ -401,11 +400,10 @@ html.in-play body.mode-3d #play .topbar .topbar-btns { pointer-events: auto; }
 #table3d .r3d-seat-label[hidden] { display: none; }
 #table3d .r3d-seat-label .avatar {
   position: relative;
-  width: 56px;      /* 2026-10-30 十四轮：44 → 56（老吴「四家的头像也都放大一些，尽量大」；
-                       再大矮屏 844×390 上上家卡会顶上对家横卡，卡片高度余量只剩不到 10px） */
-  height: 56px;
+  width: 48px;      /* 2026-10-31 老吴：头像稍微小一点（原 56；十四轮由 44 放大到 56） */
+  height: 48px;
   flex: 0 0 auto;
-  font-size: 23px;
+  font-size: 20px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -696,7 +694,9 @@ body.mode-3d #exitsummary .stats-close { margin-top: 8px; }
 /* ============ 右上角菜单（老吴 2026-10-24）：胡牌提示/战绩/退出 收进一个小按钮 ============ */
 /* 平时只显示一个「⋯」小圆钮；点开后纵向展开为菜单（点任意项/点外部收起）。 */
 body.mode-3d #play .topbar-btns {
-  position: relative;
+  position: absolute;
+  top: 0;
+  right: 0;
   display: block;
   padding: 0;
   background: transparent;
@@ -711,6 +711,7 @@ body.mode-3d #play .topbar-btns.menu-open {
   align-items: stretch;
   gap: 4px;
   padding: 6px;
+  z-index: 101;
   background: rgba(5, 24, 16, .92);
   border: 1px solid rgba(255, 255, 255, .15);
   border-radius: 10px;
