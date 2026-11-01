@@ -1256,8 +1256,19 @@ function ensureSocket() {
     // 在线状态的唯一实时来源：断线/重连都会广播这一帧（不依赖下一帧 state）
     if (lobbyOpts.applyPlayers) lobbyOpts.applyPlayers(p);
     // 未开局 → 留在大厅看座位；已开局但还没收到 state → 过渡提示
-    if (!p.started) showLobby('table-view');
-    else if (!S.driver || !S.driver.getView()) showWaiting(`第 ${p.handNo}/${p.totalHands} 把，正在发牌…`);
+    // 老吴 2026-10-31：终局最后一把的「本局结算」和「本场总结」必须继续浮在**游戏页**上
+    // （此前 room 结算完 started=false 广播 players，这里无条件 showLobby 把背景切回
+    //  大厅，结算页因此变成竖屏）。拦截条件：
+    //  ① S.tableFinished —— table:finished 先于本帧 players 到达（server/ws/index.js
+    //     emitSettled：先 emit table:finished 再 broadcastPlayers），打满局数时已置位；
+    //  ② 结算窗(#settle)/本场总结(#exitsummary)还开着 —— 兜住投票散场（table:exited）
+    //     等不走 table:finished 的路径。
+    if (!p.started) {
+      const st = $('settle');
+      const sm = $('exitsummary');
+      const settleOpen = !!(st && !st.hidden) || !!(sm && !sm.hidden);
+      if (!S.tableFinished && !settleOpen) showLobby('table-view');
+    } else if (!S.driver || !S.driver.getView()) showWaiting(`第 ${p.handNo}/${p.totalHands} 把，正在发牌…`);
   });
   socket.on('table:started', (p) => {
     // handNo===1 表示新一场开始（重开也会回到 1）→ 清空本场战绩累计

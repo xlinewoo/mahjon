@@ -59,6 +59,11 @@ const MY_HAND_SCALE = 3.5;   // 自家手牌明显更大（≈别家1.6倍）；
    上限 ≈1.90（此时牌面露出率 70%，与本家/对家的 3.5 完全同口径，不会再压掉图案）。
    N 的单向极限是 3.5，统一后随 E/W 降到同一值。每帧由 applySize 求解，下限 1.4。 */
 let COMMON_HAND_SCALE = HAND_SCALE;
+/* S/N 固定手牌尺度（老吴 2026-10-31「手牌固定大小，不要变化，尽量大」）：
+   取「MY_HAND_SCALE 与 14 张整排宽度上限 nCapW / 牌河避让上限 nCapZ」的最小值，
+   只随视口几何变（窗口 resize），**与牌局进程完全无关** —— 打牌全程恒定。
+   常规横屏 = 3.5。每帧由 applySize 求解。 */
+let SN_HAND_SCALE = MY_HAND_SCALE;
 /* E/W 竖列的「露出率」与「与自家手牌的缝」（老吴 2026-10-30 十七轮「其他玩家手牌再放大一些」）。
    E/W 是竖列：每张牌沿世界 z 只占 TILE_W（短边），所以沿 z 叠一点代价极小 ——
    旧代码按「自然步距 STEP_HAND」求值，等于强制 100% 露出，把带宽全浪费在这一项上。
@@ -88,18 +93,22 @@ const RING_SEATS = ['S', 'W', 'N', 'E'];
 const RING_BASE = { S: 0, W: WALL_STACKS, N: 2 * WALL_STACKS, E: 3 * WALL_STACKS };
 const MELD_N = { chi: 3, peng: 3, zhi: 4, xu: 4, an: 4, skin: 1, wild: 1, red: 1 };
 /* 各家门前牌河（老吴 2026-10-27 起）：弃牌不堆桌心，按座位铺在**各家门前**。
-   2026-10-30 十九轮（老吴「上家和下家的牌也和我的一样，靠近中央指示器，从左往右排」）：
-   四家**统一成同一套横排网格** —— 牌不转向、每行从左往右、行自上而下；
-   区别只在锚点：S/N 居中钉在指示器上/下方，E/W 贴在指示器左/右两侧。
-   旧版 E/W 是「转 90° 的竖列贴手牌内侧」，离中央很远，已作废。 */
-const RIVER_SCALE = 1.8;
-const RIVER_OUT = 0.40;       // S/N 最靠手牌一行的中心（|z|）
-const RIVER_X_HALF = 0.265;   // S/N 行的横向半宽（6 列 @1.8 倍；1.5 倍时的 0.218 只能排 5 列）
-const RIVER_EW_INNER = 0.30;  // E/W 牌河靠指示器一侧的内缘（|x|；指示器半宽 0.21，留 ~0.09 空档）
+   2026-10-31 定稿（老吴「和主视角一样，都从靠近中央指示器的地方开始排列，
+   以各自的视角从左到右、从上到下；牌面再大一些」）：
+   · 四家第一行都**贴中央指示器**，行朝各自手牌方向长（「上→下」= 各自视角的远→近）；
+   · 行内按**各自视角**从左往右：S 左=世界 -x、N 左=+x（屏幕上镜像）、
+     E 左=+z（朝 S 侧）、W 左=-z（朝 N 侧）；
+   · S/N：6 列 × 3 行；E/W：行沿 x 从指示器铺向手牌，行内沿 z 排（每行 6 张）；
+   · 牌面 RIVER_SCALE 1.8 → 2.0（+11%），半宽 0.265 → 0.29 仍容 6 列。
+   容量不足时整组等比缩小。 */
+const RIVER_SCALE = 2.0;
+const RIVER_OUT = 0.42;       // S/N 最靠手牌一行的中心（|z|）；2.0 倍下最近指示器一行外沿 ≈0.094，不压桌心指示器
+const RIVER_X_HALF = 0.29;    // S/N 行的横向半宽（6 列 @2.0 倍；0.265 在 2.0 倍下只能排 5 列）
+const RIVER_EW_INNER = 0.32;  // E/W 牌河靠指示器一侧的内缘（|x|；S/N 牌河 x 外沿 = RIVER_X_HALF=0.29，留 0.03 缝）
 const RIVER_EW_ROWS = 3;      // E/W 行数：与 S/N 同为 3 行，四家行距一致
 const RIVER_EW_MAX_COLS = 6;  // E/W 每行最多 6 列 → 满编 3×6 = 18 张，够一整局
-const WILD_POS = [0.30, -0.24];  // 癞子指示牌：指示器右上角外侧（原「右侧空档」已被 E 牌河占用，
-                                 // 这里在 E 牌河第一行之上、N 牌河右侧，三者互不压）
+const WILD_POS = [0.42, -0.42];  // 癞子指示牌：东北对角空区（新 E 牌河占 x∈[0.32,0.63]、|z|≤0.285，
+                                 // N 牌河占 x≤0.29 —— (0.42,-0.42) 与两者各留 ≥0.03）
 
 /* 骰子 / 癞子指示牌要不要摆到桌上（老吴 2026-10-30 二十轮）：
    「牌河中不要显示骰子和赖子了」。这两样原本都落在中场 —— 两颗骰子摆在 E 牌河空档带、
@@ -473,7 +482,20 @@ export function createRender3d(opts = {}) {
      回放（没有 socket）也走这条默认，不会把回放里的人都画成灰的。 */
   let onlineBySeat = null;
   let curHalfW = 1.45;     // 当前视口世界半宽（applySize 维护；副露缩放/落位用）
+  let curHalfH = 0.80;     // 当前视口世界半高（applySize 维护；E/W 竖列带宽用）
   const keyOf = (seat) => LOCAL_ORDER[((seat - currentSeat) % 4 + 4) % 4];
+
+  /* E/W 竖列可用「竖向带」半高（老吴 2026-11-01 修复「开口后折叠遮挡」）：
+   *   横屏/桌面：上下家座位已被推到桌沿（seatXEW 大），整列在 x 向与 S/N 手牌大幅错开，
+   *     直接用满屏幕可视高度（减缝留木框）即可让副露+手牌以自然步距摆开、不再压缩到牌背互压；
+   *   手机竖屏：座位 x 仍落在 S/N 手牌 x 足迹内，竖向带受 S/N 手牌内缘限制，沿用旧值
+   *     （HAND_Z - TILE_H·MY/2 - EW_S_GAP ≈0.53）避免新遮挡。两者取小后兜底 0.30。 */
+  function ewZMax() {
+    const sx = Math.abs(seatGroups.E.position.x);
+    const narrow = HAND_Z - (TILE_H * MY_HAND_SCALE) / 2 - EW_S_GAP;
+    const screenHalf = curHalfH - 0.07;   // 留 11px 给木框（牌外缘不压框）
+    return Math.max(0.30, sx < 0.67 ? narrow : screenHalf);
+  }
 
   function clearTable() {
     for (const k of LOCAL_ORDER) {
@@ -515,8 +537,9 @@ export function createRender3d(opts = {}) {
     const z0 = EW_Z_MIN + (span - ((n - 1) * step + tileW)) / 2 + tileW / 2;
     return { step, z0 };
   }
-  /* 各座位手牌缩放：本家 MY_HAND_SCALE、其余三家共用 COMMON_HAND_SCALE（每帧求解） */
-  const handScaleOf = (key) => (key === 'S' ? MY_HAND_SCALE : COMMON_HAND_SCALE);
+  /* 各座位手牌缩放：本家 S 固定 SN_HAND_SCALE（≈3.5）、N/E/W 三家固定 COMMON_HAND_SCALE
+     （≈1.9，老吴 2026-10-31 深夜「对家的手牌和其他两家做到一致」—— 对家不再用 3.5） */
+  const handScaleOf = (key) => (key === 'S' ? SN_HAND_SCALE : COMMON_HAND_SCALE);
   function layoutHand(key, codes, faceUp, drawn = null, xOffset = 0, ewCol = null, sclOverride = null) {
     const g = groups[key].hand;
     // 2026-10-24 老吴「参照俯视图」：四家手牌全部躺平（对局＝回放同一摆法），
@@ -530,13 +553,19 @@ export function createRender3d(opts = {}) {
     const n = codes.length;
     const total = n + (drawn != null ? 1 : 0);
     const dirX = key === 'E' ? 1 : -1;
-    let left = total ? -((total - 1) * step + gap) / 2 : 0;
+    /* 老吴 2026-10-31 深夜：「每次摸到新牌的时候，手牌的位置也会移动。改一下，
+       新牌在最右侧就可以了，原有手牌位置不动。」
+       —— 基础行只按 codes.length 居中（与没摸牌时逐张同位），刚摸的牌接在
+       最右（原最后一张 + 自然步距 + 摸牌空档）。打牌后回到 n 张，位置不变。
+       E/W 的 ewCol 兜底分支（ewColumnFit）仍用 total —— E/W 不会有 drawn。 */
+    let left = n ? -((n - 1) * step) / 2 : 0;
     let colStep = step;
     let slotBase = 0;
     if (ew) {
       // E/W 竖列沿世界 z 排（世界 z = off，E/W 同构）；局部 x = dirX × off。
-      // 有 ewCol（合并列）→ 手牌占列尾槽位（特殊杠/副露在前）；无则整列自适配。
-      if (ewCol) { left = ewCol.z0; colStep = ewCol.step; slotBase = ewCol.nLead; }
+      // 有 ewCol（分块布局）→ 手牌块从 ewCol.handZ0 起、步距 backStep（副露块已由
+      // layoutMeldsFrom 占据另一端，块间空档在 planMelds 里算好）；无则整列自适配。
+      if (ewCol) { left = ewCol.handZ0; colStep = ewCol.backStep; }
       else { const col = ewColumnFit(total, step, TILE_W * scl); left = col.z0; colStep = col.step; }
     }
     const put = (code, i, isDrawn) => {
@@ -569,7 +598,7 @@ export function createRender3d(opts = {}) {
     let colStep = step;
     let slotBase = 0;
     if (ew) {
-      if (ewCol) { left = ewCol.z0; colStep = ewCol.step; slotBase = ewCol.nLead; }
+      if (ewCol) { left = ewCol.handZ0; colStep = ewCol.backStep; }
       else { const col = ewColumnFit(count, step, TILE_W * scl); left = col.z0; colStep = col.step; }
     }
     for (let i = 0; i < count; i++) {
@@ -611,39 +640,98 @@ export function createRender3d(opts = {}) {
         bucket.push({ code, faceUp });
       });
     }
+    /* 别家（E/W）手牌尺度固定 = COMMON_HAND_SCALE（老吴 2026-10-31「手牌固定大小，
+       不要变化」）—— COMMON 只由视口几何决定，与牌局进程无关。
+       2026-10-31 深夜二修「上/下家的牌还是重叠了」：手背下限 50% 太激进（叠掉一半，
+       看着就是互相遮挡），提到 70%；副露（明牌）76%；块间空档 0.09 → 0.06。
+       典型视口（带宽 1.063、v=1.90）实测：0 副 87% / 1 碰 78% / 带杠 72% /
+       极端多杠 ≥63% —— 全程无明显叠瓦，且 v 恒定不变。
+       分块：副露块与手牌块分开排步距；特殊杠（红中/赖子/皮子）**不进竖列**，
+       由 layoutMeldsFrom 摆到列旁的平行行（朝桌心），与本家 S 同构（老吴深夜）。
+       两块都压到下限还放不下（极端多杠）才缩 v —— 最后手段。 */
     const plan = { key, normal, special, sc: handScaleOf(key), meldLeft: 0, handX: 0, spLeft: 0, ew: null };
     if (key === 'E' || key === 'W') {
-      // 合并列：总张数 = 特殊杠 + 副露 + 手牌；整列等比缩放到带内（自然步距不叠瓦），
-      // 缩到 1.2 仍放不下才由 ewColumnFit 压缩步距兜底（带宽求解见上方注释，十轮）。
-      const total = special.length + normal.length + handCount;
-      /* 2026-10-30 十七轮：与 applySize 的 ewCap **完全同口径**（外沿 + 露出率）——
-         列沿 z 的实际占用 = ((total-1)·露出率 + 1)·TILE_W·v（E/W 牌沿 z 是短边 TILE_W）；
-         可用带 = 2·(HAND_Z − 本家牌半高 − EW_S_GAP)。
-         ⇒ v ≤ 2(HAND_Z − TILE_H·MY/2 − EW_S_GAP) / (((total−1)·EW_EXPOSURE + 1)·TILE_W)。
-         13 张时正好等于 COMMON_HAND_SCALE（不再被 ewColumnFit 二次压缩）；
-         副露多、total 涨，v 自然缩，露出率恒定 76%。 */
-      const ewBand = 2 * (HAND_Z - (TILE_H * MY_HAND_SCALE) / 2 - EW_S_GAP);
-      const vSpan = ewBand / (((total - 1) * EW_EXPOSURE + 1) * TILE_W);
-      const v = Math.min(COMMON_HAND_SCALE, Math.max(1.2, Math.floor(vSpan * 100) / 100));
-      EW_Z_MAX = HAND_Z - (TILE_H * MY_HAND_SCALE) / 2 - EW_S_GAP;   // 外沿，不是中心
+      const GAPW = 0.06;                       // 副露块 ↔ 手牌块空档（世界单位）
+      const v0 = COMMON_HAND_SCALE;
+      EW_Z_MAX = ewZMax();   // 视口几何算好的竖向带（横屏用满屏高、竖屏受 S/N 手牌限制）
       EW_Z_MIN = -EW_Z_MAX;
-      const col = ewColumnFit(total, STEP_HAND * v, TILE_W * v);
+      const span = EW_Z_MAX - EW_Z_MIN;
+      const m = normal.length;                 // 副露块张数（特殊杠不占列，见上）
+      const h = handCount;                     // 手牌块张数
+      const v = v0;                            // 恒定：任何牌局都不缩（老吴「固定大小，不要变化」）
+      const tileW = TILE_W * v;
+      const meldFloor = EW_EXPOSURE * tileW;
+      const backFloor = 0.7 * tileW;
+      let meldStep = STEP_HAND * v;              // 副露：先试自然步距（完全分开）
+      let backStep = STEP_HAND * v;              // 手牌：同上
+      const meldSpan = () => (m > 0 ? (m - 1) * meldStep + tileW : 0);
+      const backSpan = () => (h > 0 ? (h - 1) * backStep + tileW : 0);
+      const gapW = m > 0 && h > 0 ? GAPW : 0;
+      let over = meldSpan() + gapW + backSpan() - span;
+      if (over > 0) {                            // ① 先压手牌步距到 70% 露出
+        const canGive = h > 1 ? (backStep - backFloor) * (h - 1) : 0;
+        const give = Math.min(canGive, over);
+        backStep -= give / (h - 1);
+        over -= give;
+      }
+      if (over > 0) {                            // ② 再压副露步距（保 76% 露出）
+        const canGive = m > 1 ? (meldStep - meldFloor) * (m - 1) : 0;
+        const give = Math.min(canGive, over);
+        meldStep -= give / (m - 1);
+        over -= give;
+      }
+      if (over > 0) {                            // ③ 极端多杠兜底：两块同压到 60% 露出，绝不叠死
+        const gaps = Math.max(1, (h - 1) + (m - 1));
+        const cut = over / gaps;
+        backStep = Math.max(0.6 * tileW, backStep - cut);
+        meldStep = Math.max(0.6 * tileW, meldStep - cut);
+      }
+      // 整体居中：副露块在列的一端、手牌块在另一端；W＝副露靠 EW_Z_MIN 侧，
+      // E＝取负镜像（副露靠 EW_Z_MAX 侧＝下家自己左手边，与 2026-10-31 定向一致）
+      const total = meldSpan() + gapW + backSpan();
+      const zStart = EW_Z_MIN + (span - total) / 2;
+      const flip = key === 'E' ? -1 : 1;
+      const z0 = flip * (zStart + tileW / 2);                          // 副露第 1 张中心
+      const handZ0 = flip * (zStart + meldSpan() + gapW + tileW / 2);  // 手牌第 1 张中心
       plan.sc = v;
-      plan.ew = { total, v, step: col.step, z0: col.z0, nLead: special.length + normal.length };
+      plan.ew = { v, meldStep: flip * meldStep, backStep: flip * backStep, z0, handZ0, m };
       return plan;
     }
-    // S/N：副露铺在手牌行末端，最左不超过视口内缘；放不下时**手牌与副露整体**等比缩小
-    // （2026-10-30 十三轮：对家手牌放到 3.5 后，只缩副露不缩手牌会让整行冲出视口被裁）
+    /* S/N（老吴 2026-10-31 定稿「手牌、副露都固定大小，尽量大，不要变化」）：
+       · 本家 S 手牌恒 SN_HAND_SCALE（常规视口 = 3.5，只随窗口 resize 变）；
+         对家 N 与上/下家一致用 COMMON_HAND_SCALE（≈1.9，深夜改）；
+       · S 的副露也恒定 3.5（与手牌同行同尺寸），只有真放不下（3 副以上把整行顶出视口）
+         才按比例缩一点 —— 缩放是最后手段；
+       · 副露挂在手牌左侧会打破行的对称 → 先把「手牌+副露」整行平移居中（handX），
+         平移解决不了才缩副露；
+       · 预算按「手牌 + 刚摸 1 张」的最宽行算（碰/杠后行宽 +1 张/副），摸牌/打牌
+         不会引起副露脉冲缩放。 */
+    /* N（老吴 2026-10-31 深夜定稿）：对家手牌与上/下家**同一尺度** COMMON_HAND_SCALE
+       （≈1.9）——「对家的手牌为啥比我的还大，和其他两家做到一致就行」。
+       此前 N 与本家同用 3.5，比别家大了近一倍。整行（手牌+副露）放不下时才等比缩。 */
     const meldW = (v) => (normal.length ? (normal.length - 1) * MELD_STEP * v + TILE_W * v : 0);
-    /* 整行最左**边缘**（不是中心）到中线的距离。plan.meldLeft 是最左那张牌的**中心**，
-       所以还要再减半个牌宽 —— 旧 rowW 漏了这一项：1280 宽下三张副露时牌左缘 -1.249
-       越过木框内缘 -1.22，最左一张压在木纹上（2026-10-30 十五轮实测截图发现）。 */
-    const rowW = (v) => handHalfAt(handCount, drawn, v) + 0.02 + meldW(v) + (normal.length ? (TILE_W * v) / 2 : 0);
-    let sc = handScaleOf(key);
-    while (sc > 1.2 && -rowW(sc) < -(curHalfW - 0.06)) sc = Math.round((sc - 0.05) * 100) / 100;
+    // S 本家恒 3.5；N 对家与 E/W 一致用 COMMON（≈1.9，老吴 2026-10-31 深夜）
+    const sc = key === 'S' ? SN_HAND_SCALE : COMMON_HAND_SCALE;
+    const hhBudget = handHalfAt(handCount, 1, sc);   // 预算：最宽行（含摸牌槽）——副露缩放判定用
+    /* 老吴 2026-10-31 深夜「摸新牌手牌位置不动」：副露锚点改用**不含摸牌**的行半宽 hh0，
+       平移上限也永久预留摸牌槽（step+gap）—— 摸牌/打牌前后副露与手牌逐张同位，
+       摸牌只出现在最右端，不再引起整行重排。 */
+    const hh = handHalfAt(handCount, null, sc);
+    const C = curHalfW - 0.06;                       // 视口内缘（左右各留 0.06）
+    let meldScl = sc;
+    if (normal.length) {
+      const denom = (normal.length - 1) * MELD_STEP + 1.5 * TILE_W;   // meldW + 左缘半张
+      const fit = (2 * C - 2 * hhBudget - 0.02) / denom;
+      meldScl = Math.max(1.0, Math.min(sc, Math.floor(fit * 100) / 100));
+    }
+    // 平移居中：整行偏左时右移；上限预留摸牌槽（稳定值，与是否已摸牌无关 → 副露不跳）
+    const DRAW_SLOT = STEP_HAND * sc + HAND_DRAW_GAP * (sc / HAND_SCALE);
+    const L = hh + 0.02 + meldW(meldScl) + (TILE_W * meldScl) / 2;
+    const shift = L > C ? Math.max(0, Math.min((L - hh) / 2, C - hh - DRAW_SLOT)) : 0;
     plan.sc = sc;
-    const hh = handHalfAt(handCount, drawn, sc);
-    plan.meldLeft = -hh - 0.02 - meldW(sc);   // S=世界左缘；N 经 place() 镜像后同样落在视角左侧
+    plan.meldScl = meldScl;
+    plan.handX = shift;
+    plan.meldLeft = -hh - 0.02 - meldW(meldScl) + shift;
     plan.spLeft = plan.meldLeft;
     return plan;
   }
@@ -652,15 +740,29 @@ export function createRender3d(opts = {}) {
     const g = groups[key].meld;
     const { normal, special, sc } = plan;
     if (key === 'E' || key === 'W') {
-      // 并列（老吴 2026-10-27 五轮）：与手牌同一列、同缩放，槽位由 planMelds 统一算好。
-      // 列序从上往下：特殊杠（列顶＝手牌区的左上角）→ 普通副露 → 手牌（占列尾，见 layoutHand）。
+      // 分块（老吴 2026-10-31 深夜）：竖列里只有普通副露（与手牌同一列，槽位由 planMelds 算好）；
+      // 特殊杠（红中/赖子/皮子）**不进竖列** —— 错到列中段、朝桌心留间隙（见下方 spGap），
+      // 避开对家头像(顶)与我的手牌(底)的遮挡。
       const ewCol = plan.ew;
-      const seq = [...special, ...normal];
       const dirX = key === 'E' ? 1 : -1;   // 世界 z = off（E/W 同构）；局部 x = dirX × off
-      seq.forEach((t, s) => {
+      normal.forEach((t, s) => {
         const m = makeTile(t.code, t.faceUp);
-        const off = ewCol.z0 + s * ewCol.step;
+        const off = ewCol.z0 + s * ewCol.meldStep;
         m.position.set(dirX * off, flatRestY(ewCol.v), 0);
+        m.rotation.x = -Math.PI / 2;
+        m.rotateZ(Math.PI);   // 与 E/W 手牌同读向
+        m.scale.setScalar(ewCol.v);
+        g.add(m);
+      });
+      // 特殊杠：与竖列脱开、移到**列中段**、朝桌心错开（老吴 2026-11-01：
+      // 原先贴着副露块、落在竖列顶端/底端，被对家头像(顶)与我的手牌(底)压住；
+      // 现改为列中段、留出清晰间隙，既避开顶/底遮挡，又满足「往右一些」）。
+      const spGap = TILE_H * ewCol.v / 2 + 0.06;   // 列外缘 → 特殊杠中心 的间隙（朝桌心）
+      const nSp = special.length;
+      special.forEach((t, s) => {
+        const m = makeTile(t.code, t.faceUp);
+        const off = (s - (nSp - 1) / 2) * ewCol.meldStep;   // 沿局部 x 居中铺开 → 世界 z 居中（列中段）
+        m.position.set(dirX * off, flatRestY(ewCol.v), spGap);
         m.rotation.x = -Math.PI / 2;
         m.rotateZ(Math.PI);   // 与 E/W 手牌同读向
         m.scale.setScalar(ewCol.v);
@@ -669,7 +771,7 @@ export function createRender3d(opts = {}) {
       return;
     }
     // S/N：普通副露与手牌同行（行末端），特殊杠在该端朝桌心错一行
-    const dir = key === 'S' ? 1 : -1;      // S 局部 x = 世界 x；N 世界 x = -局部 x
+    const dir = key === 'S' || key === 'N' ? 1 : -1;   // S/N 副露落在各自左手边（视角左/右）；E/W 走竖列分支
     const place = (seq, zLocal, startWorldX, scl = sc) => {
       const stp = MELD_STEP * scl;
       seq.forEach((t, i) => {
@@ -680,26 +782,27 @@ export function createRender3d(opts = {}) {
         g.add(m);
       });
     };
-    place(normal, 0, plan.meldLeft);
+    place(normal, 0, plan.meldLeft, plan.meldScl || sc);   // 副露用自身固定尺度（老吴 2026-10-31）
     if (special.length) {
       /* 特殊杠（红中 / 癞子 / 皮子，单张）老吴 2026-10-30 十五轮：
          「我的红中赖子皮杠出以后的副露和其他玩家的手牌一样大小」——
-         本家手牌是 3.5，特殊杠若跟着 3.5 就比别家手牌（1.90）大近一倍，单张浮在桌上很突兀。
-         改用三家公共尺度（= 别家手牌尺寸），与所属座位取小：N 的 plan.sc 本来就等于公共值，
-         副露多缩到 1.47 时它也同步缩，不会出现「副露缩了、杠牌不缩」。
+         改用别家公共尺度（= E/W 手牌尺寸），与副露尺度取小：副露被压缩时它同步缩，
+         不会出现「副露缩了、杠牌不缩」、也不会比同行副露更宽戳出行外。
          「上方」= 朝牌河中央：S 局部 -z / N 局部 -z（N 世界 z = -局部 z，同为朝中央）。
          错行量按「手牌行半厚 + 本牌半厚 + 0.01」算 —— 牌变小后离手牌行自然更近，仍不压。 */
-      const spScl = Math.min(sc, COMMON_HAND_SCALE);
+      const spScl = Math.min(plan.meldScl || sc, COMMON_HAND_SCALE);
       const zLocal = -(TILE_H * sc) / 2 - (TILE_H * spScl) / 2 - 0.01;
       place(special, zLocal, plan.spLeft, spScl);
     }
   }
   /* 各家门前牌河（老吴 2026-10-27）：每家打出的牌铺在该家门前（手牌与中央指示器之间）。
-     2026-10-30 十九轮起四家**同一套横排网格**（牌不转向、从左往右、自上而下）：
-       · S/N：6 列 × 3 行，水平居中，行 0 最靠指示器；
-       · E/W：列数按「指示器边缘 ↔ 手牌内缘」的可用宽度反解（封顶 6 列），
-              3 行以中线 z=0 居中，整块贴在指示器左/右两侧。
-     容量不足时整组等比缩小。 */
+     2026-10-30 十九轮起四家**同一套横排网格**（牌不转向）：
+       · S/N：6 列 × 3 行；E/W：行沿 x 从指示器铺向手牌，行内沿 z 排。
+     容量不足时整组等比缩小。
+     2026-10-31 定稿（老吴）：四家统一「**从靠近中央指示器处起摆**，以各自视角
+       从左到右、从上到下」—— S 不变；N 行序翻回第一行贴指示器、行内改为 N 视角
+       左→右（世界 +x→-x，屏幕上镜像）；E/W 行沿 x 从指示器长向手牌，
+       行内沿 z 按 E/W 各自视角（E 左=+z、W 左=-z）。 */
   function riverColsOf(s) {
     return Math.max(3, Math.min(8, Math.floor((2 * (RIVER_X_HALF - (TILE_W * s) / 2)) / (TILE_W * s + 0.006)) + 1));
   }
@@ -713,48 +816,64 @@ export function createRender3d(opts = {}) {
     const halfPx = el && !el.hidden ? el.offsetWidth / 2 : 95;
     return Math.max(RIVER_EW_INNER, halfPx / pxPerUnit + 0.035);
   }
-  /* E/W 一行的列数：可用宽度 = 自家手牌内缘 − 牌河内缘。 */
-  function riverEWColsOf(s, inner) {
-    const handInner = Math.abs(seatGroups.E.position.x) - (TILE_H * COMMON_HAND_SCALE) / 2 - 0.05;
-    const avail = handInner - inner;
-    return Math.max(2, Math.min(RIVER_EW_MAX_COLS, Math.floor(avail / (TILE_W * s + 0.006))));
+  /* E/W 每行的张数（行内沿 z 排）：与 S/N 行**同宽**（2·RIVER_X_HALF），四家牌河横竖同宽。
+     另需保证 3 行沿 x 能塞进「指示器内缘 ↔ 手牌内缘」，塞不下由 layoutRiverStrip 的缩小循环兜底。 */
+  function riverEWColsOf(s) {
+    const step = TILE_W * s + 0.006;
+    return Math.max(2, Math.min(RIVER_EW_MAX_COLS, Math.floor((2 * (RIVER_X_HALF - (TILE_W * s) / 2)) / step) + 1));
+  }
+  /* E/W 手牌内缘（|x|）：牌河 3 行沿 x 的外沿不得越过它。 */
+  function riverEWHandInner() {
+    return Math.abs(seatGroups.E.position.x) - (TILE_H * COMMON_HAND_SCALE) / 2 - 0.05;
   }
   function layoutRiverStrip(key, tiles) {
     const n = tiles.length;
     if (!n) return;
     const sn = key === 'S' || key === 'N';
+    const isEW = !sn;
     const stepW = (s) => TILE_W * s + 0.006;
     const inner = sn ? 0 : riverEWInner();
-    const capOf = (s) => (sn ? 3 * riverColsOf(s) : RIVER_EW_ROWS * riverEWColsOf(s, inner));
+    const capOf = (s) => (sn ? 3 * riverColsOf(s) : RIVER_EW_ROWS * riverEWColsOf(s));
     let s = RIVER_SCALE;
-    while (s > 0.6 && capOf(s) < n) s -= 0.1;
+    while (s > 0.6 && (capOf(s) < n ||
+      (isEW && inner + TILE_W * s + (RIVER_EW_ROWS - 1) * (TILE_H * s + 0.008) > riverEWHandInner()))) s -= 0.1;
     const step = stepW(s);
     const rowH = TILE_H * s + 0.008;
+    const tileW = TILE_W * s;
+    /* 牌河朝向：须与各家「自己手牌」一致（老吴 2026-11-01）。
+     * 手牌在带 yaw 的座位组里、且 E/W 单牌额外 rotateZ(π)；牌河在**无旋转**的 riverGroup，
+     * 故把「座位 yaw ∘ 单牌旋转」折算成世界四元数直接套到牌河牌上：
+     *   S：Rx(-π/2)；N：Ry(π)·Rx(-π/2)；E：Ry(-π/2)·Rx(-π/2)·Rz(π)；W：Ry(π/2)·Rx(-π/2)·Rz(π)。 */
+    const seatYaw = key === 'N' ? Math.PI : key === 'E' ? -Math.PI / 2 : key === 'W' ? Math.PI / 2 : 0;
+    const isEw = (key === 'E' || key === 'W');
+    const qTile = new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI / 2, 0, isEw ? Math.PI : 0));
+    const qYaw = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), seatYaw);
+    const riverQuat = qYaw.multiply(qTile);   // qYaw * qTile（匹配各家手牌世界朝向）
     for (let i = 0; i < n; i++) {
       const m = makeTile(tiles[i].tile, true);
-      m.rotation.x = -Math.PI / 2;      // 四家一律躺平、牌面朝上 —— 观感与自家手牌同款
+      m.quaternion.copy(riverQuat);     // 各家牌河朝向 = 该家手牌朝向
       if (sn) {
         const cols = riverColsOf(s);
         const row = Math.floor(i / cols), col = i % cols;
-        const sign = key === 'S' ? 1 : -1;
-        // 老吴 2026-10-27 六轮：第一行贴中央指示器，行「从上往下」朝自己手牌方向长
-        // （旧序第一行贴手牌、往上罗列 —— 作废）。固定 3 行网格，行0＝最靠指示器。
-        m.position.set(-((cols - 1) / 2) * step + col * step, TILE_W / 2 + 0.001,
-          sign * (RIVER_OUT - (2 - row) * rowH));
+        // 老吴 2026-10-31 定稿：第一行贴中央指示器，行朝各自手牌方向长（各自视角的上→下）；
+        // 行内按各自视角从左往右：S 左 = 世界 -x；N 面朝桌心，左 = 世界 +x（屏幕上镜像）。
+        const zSn = (RIVER_OUT - (2 - row) * rowH) * (key === 'S' ? 1 : -1);
+        const xSn = key === 'S'
+          ? -((cols - 1) / 2) * step + col * step
+          : +((cols - 1) / 2) * step - col * step;
+        m.position.set(xSn, TILE_W / 2 + 0.001, zSn);
       } else {
-        /* E/W（老吴 2026-10-30 十九轮）：**和本家完全一样的横排网格** ——
-           牌不再转 90°（旧版转成横躺牌、沿 z 竖排一列，还贴在自家手牌内侧，
-           离中央指示器很远），现在正着摆、一行一行横着排、行自上而下。
-           锚点：E 从指示器**右缘往右**长，W 从**左缘往左**长（镜像）。
-           为什么 W 是镜像而不是也「从最左填」：网格是固定列宽的（新牌不能把旧牌顶跑），
-           若 W 也从最左端填，牌少时整块会浮在离指示器一格以外、中间留一大片空 —— 反而
-           更不「靠近中央指示器」。镜像后两家都紧贴指示器，视觉上仍是一排从左到右的牌。 */
-        const sign = key === 'E' ? 1 : -1;
-        const cols = riverEWColsOf(s, inner);
+        /* E/W（老吴 2026-10-31 定稿）：行沿 x **从指示器铺向各自手牌**（各自视角的上→下，
+           第一行贴指示器，不再以 z=0 居中悬空）；行内沿 z 按各自视角从左往右：
+           E 面朝 -x，左 = 世界 +z（朝 S 侧）；W 面朝 +x，左 = 世界 -z（朝 N 侧）。
+           列位仍是固定网格（新牌不顶跑旧牌），3 行外沿不越手牌（缩小循环已保证）。 */
+        const cols = riverEWColsOf(s);
         const row = Math.floor(i / cols), col = i % cols;
-        const z = -((RIVER_EW_ROWS - 1) / 2) * rowH + row * rowH;   // 3 行以 z=0 居中
-        const x = sign * (inner + (TILE_W * s) / 2 + col * step);
-        m.position.set(x, TILE_W / 2 + 0.001, z);
+        const zEW = key === 'E'
+          ? +((cols - 1) / 2) * step - col * step
+          : -((cols - 1) / 2) * step + col * step;
+        const xEW = (inner + tileW / 2 + row * rowH) * (key === 'E' ? 1 : -1);
+        m.position.set(xEW, TILE_W / 2 + 0.001, zEW);
       }
       m.scale.setScalar(s);
       m.userData.seat = tiles[i].seat;
@@ -1124,6 +1243,7 @@ export function createRender3d(opts = {}) {
       // W 手牌列左缘（W/S 两卡共用；E/W 列 x 足迹 = 列心 ± TILE_H·v/2，含副露同足迹）
       _labelBox.setFromObject(groups.W.hand);
       const colLeftW = _labelBox.isEmpty() ? toSX(-0.9) : toSX(_labelBox.min.x);
+      const colRightW = _labelBox.isEmpty() ? null : toSX(_labelBox.max.x);   // 上家列右缘（N 头像避让用）
       if (key === 'W') {
         // 上家：贴自身竖列外侧（列左侧），底边压在中线上方 —— 紧邻「不补牌」开关上侧
         x = colLeftW - nw - 4;
@@ -1140,22 +1260,16 @@ export function createRender3d(opts = {}) {
         x = colRight + 4;
         y = Math.max(Math.round(h / 2 - LABEL_GAP - nh), _nLabelBottom + 2);
       } else {
-        // 对家：与对家手牌**同一行**垂直居中对齐（x = 手牌行/副露行左端外侧，老吴 2026-10-28 八轮）。
-        // 十轮：顶边兜底 48→12 —— N 卡 x 在左上癞子徽标右侧（x≥200），不再压角标，可贴手牌行。
-        _labelBox.setFromObject(groups.N.hand);
-        if (groups.N.meld.children.length) _labelBox.expandByObject(groups.N.meld);
-        const nLeft = _labelBox.isEmpty() ? toSX(-0.675) : toSX(_labelBox.min.x);
-        const nCenterY = _labelBox.isEmpty() ? toSY(-HAND_Z)
-          : toSY((_labelBox.min.z + _labelBox.max.z) / 2);
-        /* 癞子徽标放大后（2026-10-30 十三轮 26→34px，十八轮去掉长文字后又到 52px 牌面 /
-           整枚 ~104×62）右端会往右长出一截，矮屏（844×390）上原本只隔 19px，N 卡会被压住。
-           用 offsetWidth（布局坐标，与 body 的 CSS 旋转无关）把卡片右移让开，别再靠肉眼碰运气。
-           注意：徽标现在是「牌面 + 一个赖字」的短版，宽度靠 CSS 决定，这里只跟着量，不写死。 */
+        // 对家（老吴 2026-10-31）：**固定**在左上角赖子徽标右侧、与徽标同顶对齐，
+        // 不再跟随手牌行移动（旧版 x 跟手牌行左缘、y 跟行垂直中心，会随牌变化晃动）。
+        // 徽标被隐藏（无癞子局）时也保持同一位置，卡片不跳。
+        // 老吴 2026-11-01：横屏下上家(W)头像卡与对家(N)头像同处左上角会叠住，
+        // 故 N 头像左缘对齐到 W 手牌列右缘 +8px，明显右移错开；竖屏 W 卡已在屏外则保持贴徽标。
         const wb = document.getElementById('wild-badge');
-        const badgeRight = wb && !wb.hidden ? 12 + (wb.offsetWidth || 0) + 6 : 0;
-        x = Math.max(nLeft - nw - 4, badgeRight);
-        y = Math.round(Math.max(12, nCenterY - nh / 2));
-        _nLabelBottom = y + nh;   // 供 W/E 卡避让（矮屏时 N 卡会下探到中线附近）
+        const baseX = wb && !wb.hidden ? 12 + (wb.offsetWidth || 0) + 6 : 12;
+        x = colRightW != null ? Math.max(baseX, colRightW + 8) : baseX;
+        y = 12;
+        _nLabelBottom = y + nh;   // 供 W/E 卡避让（固定后此值恒定，W/E 卡位置随之稳定）
       }
       // 兜底：极端视口时不出屏
       x = Math.max(2, Math.min(w - nw - 2, x));
@@ -1277,17 +1391,14 @@ export function createRender3d(opts = {}) {
     COMMON_HAND_SCALE = Math.floor(
       Math.max(1.4, Math.min(MY_HAND_SCALE, nCapZ, nCapW, ewCap)) * 100,
     ) / 100;
-    const zN = EDGE_Z - (TILE_H * COMMON_HAND_SCALE) / 2;    // 对家手牌中心 z（放大后更靠桌心）
+    /* S/N 固定尺度：3.5，只有 14 张整排放不下（nCapW）或压到牌河（nCapZ）才让步 ——
+       都是视口几何，与牌局无关（老吴 2026-10-31「固定大小，不要变化」）。 */
+    SN_HAND_SCALE = Math.floor(Math.min(MY_HAND_SCALE, nCapZ, nCapW) * 100) / 100;
+    const zN = EDGE_Z - (TILE_H * COMMON_HAND_SCALE) / 2;   // 对家手牌中心 z（N 已与 E/W 同尺度 ≈1.9，贴边更近）
     groups.S.hand.position.z = zS - SEAT_PZ;
     groups.S.meld.position.z = zS - SEAT_PZ;
     groups.N.hand.position.z = zN - SEAT_PZ;
     groups.N.meld.position.z = zN - SEAT_PZ;
-    /* E/W 竖列带的可用 |z| 上限（外沿口径）：EW_Z_MAX 直接就是列的**外缘**，
-       ewColumnFit 按 span = 2·EW_Z_MAX 去铺。旧版这里减掉了半个牌高、又用中心极限当外沿，
-       双重保守，白扔 0.06（≈30px）。S 牌最大（3.5）、内缘最靠里 ⇒ 拿它当界。 */
-    HAND_Z = handZ0;
-    EW_Z_MAX = Math.max(0.30, handZ0 - (TILE_H * MY_HAND_SCALE) / 2 - EW_S_GAP);
-    EW_Z_MIN = -EW_Z_MAX;
     // E/W 座位：下限 0.46（不进牌河）。
     //   老吴 2026-10-30 十七轮「左侧上家的头像也顶住左侧边缘，和右侧一样」：
     //   E/W 现在**完全对称**，都推到「头像卡外缘贴住屏幕/桌沿」为止。
@@ -1298,7 +1409,15 @@ export function createRender3d(opts = {}) {
     const seatXEW = Math.max(0.46, halfW - cardClear);
     seatGroups.E.position.x = seatXEW;
     seatGroups.W.position.x = -seatXEW;
+    /* E/W 竖列带的可用 |z| 上限（外沿口径）：EW_Z_MAX 直接就是列的**外缘**，
+       ewColumnFit 按 span = 2·EW_Z_MAX 去铺。旧版这里减掉了半个牌高、又用中心极限当外沿，
+       双重保守，白扔 0.06（≈30px）。S 牌最大（3.5）、内缘最靠里 ⇒ 拿它当界。
+       ewZMax() 依赖上面的 seatXEW 与 curHalfH（横屏用满屏高、竖屏受 S/N 手牌内缘限制）。 */
+    HAND_Z = handZ0;
+    EW_Z_MAX = ewZMax();
+    EW_Z_MIN = -EW_Z_MAX;
     curHalfW = halfW;
+    curHalfH = halfH;
     updateHandTopVar(h, null);
     updateReplayLabels(currentView);
     // E/W 门前牌河的世界坐标依赖 seatX：视口变化后按当前帧重建一次（无对局时跳过）

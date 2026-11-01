@@ -112,26 +112,21 @@ body:has(#play:not([hidden])) #host-controls .host-btn {
   touch-action: none;
 }
 
-/* 癞子提示：**牌桌左上角**的小胶囊（一个「赖」字 + 牌面图），纯展示、不吃点击。
+/* 癞子提示：**牌桌左上角**的小胶囊（牌面图 + 牌面左上角「赖」角标），纯展示、不吃点击。
    桌心虽然也亮着那张牌，但补个标记才一眼看出「这把赖哪张」（老吴 2026-10-19）。
    2026-10-25 老吴：放牌桌左上顶部（锚在 #table3d 画布内，不与页面顶栏重叠）。
-   2026-10-30 老吴：「不需要文字，只需要一个“赖”字加牌面，稍放大一些」
-   —— 去掉「癞子 xx」这行长字（牌面图自会说明是哪张），牌面 34 → 52px、
-   「赖」做成黄底深绿的实心块（20px）。整枚从 ~135×41 变成 ~104×62：
-   更矮胖、牌面更大，横向反而更省地方，左上 N 卡的避让余量更松。
-   同日再改（老吴）：「赖字显示在牌面的左侧，汉字和牌面大小齐高」
-   —— DOM 顺序改成 赖块 → 牌面；字块高度直接取 --wild-tile-h（和牌面同一个变量），
-   所以两者**永远等高**，以后单独调牌面也不会再一高一矮。 */
+   2026-10-30 老吴：去掉「癞子 xx」长字，牌面 34 → 52px。
+   2026-10-31 老吴：去掉左侧整个「赖」字块，徽标只剩牌面一张图；
+   「赖」改成**牌面左上角**的小角标（.wild-tag，绝对定位、溢出牌面一点更醒目）。
+   整枚从 ~104×62 收窄到 ~60×60，左上 N 卡避让余量更松（render3d 只量 offsetWidth，
+   变窄自动跟着让位，无需改 JS）。 */
 .wild-badge {
-  --wild-tile-h: 52px;   /* 牌面高度 = 字块高度（唯一真源） */
+  --wild-tile-h: 52px;   /* 牌面高度（唯一真源） */
   position: absolute;
   left: 12px;
   top: 12px;
   z-index: 4;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px;          /* 左右对称：赖块在最左、牌面在最右，各留 4px */
+  padding: 4px;
   /* 牌面图是方角立体牌，999px 全圆会让它的角顶出弧线（放大后很明显）→ 用方胶囊 */
   border-radius: 12px;
   background: rgba(6, 42, 29, 0.66);
@@ -149,24 +144,26 @@ body:has(#play:not([hidden])) #host-controls .host-btn {
   /* 源图自带白面与立体牌边，再垫一块白底会多出一个直角白框（放大后很明显）→ 不垫 */
   background: transparent;
 }
-.wild-badge b {
-  /* 「赖」块：高度锁死成牌面高度（齐高，永远等于 --wild-tile-h）。
-     老吴 2026-10-31：汉字太大、整体偏胖 → 字号 55 → 48（墨迹约 45px，块内上下各留 ~3.5px）、
-     左右内边距 5 → 3px（更瘦）。块高仍由 --wild-tile-h 决定，与牌面齐高不变；
-     只把字缩小、胶囊收窄，不动高度。 */
+.wild-badge .wild-tag {
+  /* 「赖」角标：压在牌面左上角，稍微探出胶囊边缘一点更醒目。
+     老吴 2026-10-31：左侧整块「赖」字太占地方 → 收成小角标。 */
+  position: absolute;
+  left: -3px;
+  top: -3px;
   box-sizing: border-box;
-  height: var(--wild-tile-h);
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 0 3px;
+  width: 18px;
+  height: 18px;
   color: #0b3b26;
   background: #ffd34d;
+  border: 1px solid rgba(255, 255, 255, 0.85);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
   font-weight: 800;
-  font-size: 48px;
+  font-size: 13px;
   line-height: 1;
-  border-radius: 9px;
-  overflow: visible;
+  border-radius: 6px;
 }
 
 /* 操作条（吃/碰/杠/胡/过）：只留按钮，不要提示文字、不要文本框（老吴 2026-10-19）。
@@ -610,9 +607,9 @@ body.mode-3d #settle .modal-card > .st-list {
 /* ③ 每家两行：上行信息（可换行兜底），下行牌面单行不换行 */
 body.mode-3d #settle .st-row { display: flex; flex-direction: column; gap: 3px; padding: 6px 12px; }
 body.mode-3d #settle .st-tiles { flex-wrap: nowrap; overflow-x: auto; }
-/* ④ 牌面放大：tiny 17px → 34px（整行宽度够放） */
+/* ④ 牌面放大：tiny 17px → 46px（整行宽度够放，放不下时 .st-tiles 内部横向滚） */
 body.mode-3d #settle .st-tiles .tile-face,
-body.mode-3d #settle .st-tiles .tile.tiny .tile-face { height: 34px !important; }
+body.mode-3d #settle .st-tiles .tile.tiny .tile-face { height: 46px !important; }
 /* ⑤ 按钮钉在卡底 */
 body.mode-3d #settle .st-again { flex: 0 0 auto; margin-top: 6px; }
 /* ⑥ 矮屏档（老吴 2026-10-28：一屏放下四家两行，不留内滚）：
@@ -637,7 +634,7 @@ body.mode-3d #settle .st-again { flex: 0 0 auto; margin-top: 6px; }
   body.mode-3d #settle .st-fan-total { font-size: 11px; min-width: 30px; }
   body.mode-3d #settle .st-tiles { margin-top: 0; }
   body.mode-3d #settle .st-tiles .tile-face,
-  body.mode-3d #settle .st-tiles .tile.tiny .tile-face { height: 28px !important; }
+  body.mode-3d #settle .st-tiles .tile.tiny .tile-face { height: 38px !important; }
   body.mode-3d #settle .st-total { font-size: 12px; margin-top: 0; }
   body.mode-3d #settle .st-again { padding: 4px 0; font-size: 14px; margin-top: 1px; }
 }

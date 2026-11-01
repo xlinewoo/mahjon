@@ -10,8 +10,7 @@ import { addAfterRender, getView, set2dTableVisible } from './render.js';
 import { state } from './render-state.js';
 import { flash } from './ui-utils.js';
 import { createRender3d, tileName } from './render3d.js';
-import { TILE_SVGS } from './assets/tiles-img.js';
-import { initTileSkin3dSelect } from './tile-skin3d.js';
+import { initTileSkin3dSelect, tileSkin3dUrl } from './tile-skin3d.js';
 
 /* ------------------------------------------------------------------ */
 /* 3D 牌桌（本页专属）                                                  */
@@ -192,12 +191,12 @@ function applyPlayers(p) {
   if (render3d) render3d.setOnline(map);
 }
 
-/** 左上角「癞子是哪张」提示：一个「赖」字 + 牌面小图；无癞子时隐藏。
- *  2026-10-30 老吴：「赖子的徽标不需要文字，只需要一个“赖”字加牌面即可，稍放大一些」
- *  —— 去掉「癞子 三条」这行字（牌面图已经说清是哪张），只留牌面 + 实心「赖」块；
- *  具体牌名挪到 title / aria-label，悬停与读屏仍可读到，但不占视觉。
- *  同日再改：「赖字显示在牌面的左侧，汉字和牌面大小齐高」→ DOM 顺序改为 b 在前，
- *  字块高度由 CSS 的 --wild-tile-h 与牌面图绑定（改一处两边同步，不会再一高一矮）。 */
+/** 左上角「癞子是哪张」提示：牌面小图 + 牌面左上角「赖」角标；无癞子时隐藏。
+ *  2026-10-30 老吴：「赖子的徽标不需要文字，只需要一个“赖”字加牌面即可」
+ *  —— 去掉「癞子 三条」这行字（牌面图已经说清是哪张），牌名挪到 title / aria-label，
+ *  悬停与读屏仍可读到，但不占视觉。
+ *  2026-10-31 老吴再改：去掉左侧整个「赖」字块，改为在**牌面左上角**叠一个小「赖」角标
+ *  （CSS 定位在 .wild-badge 上，JS 只负责生成 <img> + <i>）。 */
 function updateWildBadge(view) {
   const el = document.getElementById('wild-badge');
   if (!el) return;
@@ -211,7 +210,9 @@ function updateWildBadge(view) {
   }
   el.hidden = false;
   const name = tileName(w);
-  el.innerHTML = `<b>赖</b><img src="${TILE_SVGS[w]}" alt="" />`;
+  // 老吴 2026-11-01：徽标牌面改用 3D 皮肤资源（tileSkin3dUrl），与 3D 手牌同源，
+  // 不再用 2D 的 yawnoc 栅格集（TILE_SVGS），避免「同张牌两套画风」的割裂感。
+  el.innerHTML = `<img src="${tileSkin3dUrl(w)}" alt="" /><i class="wild-tag">赖</i>`;
   el.title = `癞子 ${name}`;
   el.setAttribute('aria-label', `癞子 ${name}`);
 }

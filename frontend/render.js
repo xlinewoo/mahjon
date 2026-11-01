@@ -829,6 +829,19 @@ function renderControls(container, v) {
   const displayActions = legal
     .map((a) => ({ a, disabled: false }))
     .concat(extra.map((a) => ({ a, disabled: true })));
+  // 特殊杠（红中/皮子/癞子杠）按「类型」只显示一个按钮（老吴 2026-11-01）：
+  // 皮子杠不带牌名后缀（2026-10-24），而一家可能同时持有多张不同数牌皮子
+  // （默认口径下皮子 = {翻出牌, 癞子减一, 红中}，例如五万+四万都是皮），
+  // 引擎会为每种皮子各产一个 skingang 动作 → 渲染成多个一模一样的「皮子杠」按钮，
+  // 既无意义也易误点。这里按类型去重，每种只留一个（优先可点的那个）。
+  // 注：引擎侧仍保留全部 skingang 动作 —— 双击/点选具体某张皮子仍能精确杠那一张。
+  const SPECIAL_GANG_TYPES = new Set(['skingang', 'redgang', 'wildgang']);
+  const specialChosen = {};
+  for (const { a, disabled } of displayActions) {
+    if (!SPECIAL_GANG_TYPES.has(a.type)) continue;
+    const cur = specialChosen[a.type];
+    if (cur === undefined || (disabled === false && cur.disabled)) specialChosen[a.type] = { a, disabled };
+  }
   for (const { a, disabled } of displayActions) {
     if (a.type === 'discard') continue; // 出牌走手牌点选
     const go = disabled ? () => {} : () => doAction(a);
@@ -853,11 +866,9 @@ function renderControls(container, v) {
       container.appendChild(actionBtn(gangActionLabel(a) + (state.gangNoDraw ? '（不补牌）' : ''), 'act', go, disabled));
     } else if (a.type === 'xu') {
       container.appendChild(actionBtn(gangActionLabel(a) + (state.gangNoDraw ? '（不补牌）' : ''), 'act', go, disabled));
-    } else if (a.type === 'wildgang') {
-      container.appendChild(actionBtn(gangActionLabel(a) + (state.gangNoDraw ? '（不补牌）' : ''), 'act', go, disabled));
-    } else if (a.type === 'redgang') {
-      container.appendChild(actionBtn(gangActionLabel(a) + (state.gangNoDraw ? '（不补牌）' : ''), 'act', go, disabled));
-    } else if (a.type === 'skingang') {
+    } else if (SPECIAL_GANG_TYPES.has(a.type)) {
+      // 去重：每种特殊杠只渲染一个按钮（见上方 specialChosen），避免多个「皮子杠」重复出现
+      if (!specialChosen[a.type] || specialChosen[a.type].a !== a) continue;
       container.appendChild(actionBtn(gangActionLabel(a) + (state.gangNoDraw ? '（不补牌）' : ''), 'act', go, disabled));
     } else if (a.type === 'pass') {
       container.appendChild(actionBtn('过', 'ghost', go, disabled));

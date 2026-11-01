@@ -968,6 +968,8 @@ body.replay-mode .seat-right .hand-backs.revealed .tile.tiny .tile-face { height
   .modal-card { max-width: min(900px, 92vw); }
   /* 结算窗放宽（老吴 2026-10-28）：四家牌面单行不换行，需要更宽的框架 */
   #settle-card { max-width: min(1100px, 96vw); }
+  /* 本场总结与单局结算同宽（老吴 2026-10-31：兜底，防旧缓存回退到 460px 竖版窄卡） */
+  #exitsummary-card { max-width: min(820px, 96vw); }
 }
 /* 弹窗底色柔和化（老吴 2026-10-28）：纯白刺眼 → 结算/战绩两张高频弹窗换暖米色（羊皮纸感），
    与牌桌墨绿/木框同一暖色系；其余低频弹窗（听牌/退出确认等）维持白底不动。 */
