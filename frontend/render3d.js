@@ -329,7 +329,7 @@ export function createRender3d(opts = {}) {
   function faceMatOf(code) {
     // 角标优先级（老吴 2026-10-28）：① 癞子 → 绿底「赖」；② 其余皮子 → 红底「皮」；
     // ③ 红中(RED_DRAGON) → **不需要角标**（老吴 13:39 明确：红中无角标，即便在皮子集合里也不加）。
-    // 红中杠仍由引擎按 redgang 独立处理，与角标无关；红中材质保留金色自发光作为视觉区分（非角标）。
+    // 红中杠仍由引擎按 redgang 独立处理，与角标无关；红中与其它牌同材质，无额外高亮（2026-11-01 老吴去掉金色自发光）。
     const mark = wildCode !== null && code === wildCode
       ? 'wild'
       : (code === RED_DRAGON ? ''
@@ -337,10 +337,6 @@ export function createRender3d(opts = {}) {
     const key = code + (mark ? ':' + mark : '');
     if (!faceMatCache.has(key)) {
       const m = new THREE.MeshStandardMaterial({ map: faceTexture(code, mark), roughness: 0.8 });
-      if (code === RED_DRAGON) {
-        m.emissive = new THREE.Color(0xffd700);
-        m.emissiveIntensity = 0.35;
-      }
       faceMatCache.set(key, m);
     }
     return faceMatCache.get(key);
