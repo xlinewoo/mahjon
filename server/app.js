@@ -122,6 +122,12 @@ export async function createApp() {
     reply.type('application/manifest+json; charset=utf-8')
       .send(readFileSync(resolve(__dirname, 'public', 'manifest.webmanifest'), 'utf8'));
   });
+  // PWA service worker（安卓 Chrome「安装应用」提示的前提；透传式，不缓存）
+  app.get('/sw.js', async (req, reply) => {
+    reply.header('cache-control', 'no-cache');
+    reply.type('application/javascript; charset=utf-8')
+      .send(readFileSync(resolve(__dirname, 'public', 'sw.js'), 'utf8'));
+  });
   // 兼容直接访问骨架名（便于本地开发时用 /net.html 打开调试）
   app.get('/net3d.html', serveBuilt('/app/net3d'));
 

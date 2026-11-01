@@ -9,6 +9,8 @@
   "background_color": "#0a3321",
   "theme_color": "#0f3d28",
   "icons": [
-    { "src": "/logo-card/icon.png", "sizes": "1536x1024", "type": "image/png", "purpose": "any" }
+    { "src": "/logo-card/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/logo-card/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/logo-card/icon.png", "sizes": "1000x1500", "type": "image/png", "purpose": "any" }
   ]
 }

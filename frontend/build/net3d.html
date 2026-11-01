@@ -11,7 +11,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="柒鞗會" />
-  <link rel="apple-touch-icon" href="/logo-card/icon.png" />
+  <link rel="apple-touch-icon" href="/logo-card/icon-512.png" />
   <style>
 /* 自动生成，勿手改 —— 由 tools/fetch-felt.mjs 生成。
  * 素材：Green mat texture by Vircon32 (OpenGameArt), CC-BY 4.0
@@ -2685,6 +2685,43 @@ body:has(#play:not([hidden])) #host-controls .host-btn {
   width: 100% !important;
   height: 100% !important;
   touch-action: none;
+}
+
+/* PWA 一次性引导条：提示用户「在系统浏览器打开并添加到主屏幕」可全屏无浏览器栏 */
+.pwa-hint {
+  position: fixed;
+  left: 0; right: 0; top: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: rgba(8, 40, 28, 0.95);
+  color: #eaf7ef;
+  font-size: 12px;
+  line-height: 1.4;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+.pwa-hint[hidden] { display: none; }
+.pwa-hint-msg { flex: 1 1 auto; min-width: 0; }
+.pwa-hint-btn {
+  flex: 0 0 auto;
+  background: #1f7a4d;
+  color: #fff;
+  border: 0;
+  border-radius: 6px;
+  padding: 5px 10px;
+  font-size: 12px;
+}
+.pwa-hint-btn[hidden] { display: none; }
+.pwa-hint-close {
+  flex: 0 0 auto;
+  background: transparent;
+  border: 0;
+  color: #cfe9da;
+  font-size: 18px;
+  line-height: 1;
+  padding: 0 4px;
 }
 
 /* 癞子提示：**牌桌左上角**的小胶囊（牌面图 + 牌面左上角「赖」角标），纯展示、不吃点击。
@@ -7435,6 +7472,55 @@ void main() {
  * SPDX-License-Identifier: MIT
  */
 
+  </script>
+<!-- PWA 引导条：在微信/浏览器里打开公网域名会带导航栏，提示用户「在系统浏览器打开并添加到主屏幕」可全屏无栏 -->
+  <div id="pwa-hint" class="pwa-hint" hidden>
+    <span id="pwa-hint-msg" class="pwa-hint-msg"></span>
+    <button id="pwa-hint-install" class="pwa-hint-btn" hidden>安装</button>
+    <button id="pwa-hint-close" class="pwa-hint-close" aria-label="关闭">×</button>
+  </div>
+
+  <script>
+  // 仅注册 SW + 展示一次性引导；不影响游戏逻辑。安全上下文（HTTPS/localhost）外静默失败。
+  (function () {
+    try {
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', function () {
+          navigator.serviceWorker.register('/sw.js').catch(function () {});
+        });
+      }
+    } catch (e) {}
+    try {
+      var standalone = ('standalone' in navigator && navigator.standalone) ||
+        (window.matchMedia && (window.matchMedia('(display-mode: standalone)').matches ||
+          window.matchMedia('(display-mode: fullscreen)').matches));
+      if (standalone) return;                       // 已从主屏全屏进入，无需提示
+      if (localStorage.getItem('mahjon_pwa_hint')) return;
+      var banner = document.getElementById('pwa-hint');
+      var msg = document.getElementById('pwa-hint-msg');
+      if (!banner || !msg) return;
+      var isIOS = /iP(hone|od|ad)/.test(navigator.userAgent) ||
+        (/Macintosh/.test(navigator.userAgent) && 'ontouchend' in document);
+      msg.textContent = isIOS
+        ? '想全屏无浏览器栏？在 Safari 点「分享」→「添加到主屏幕」，从主屏进入即全屏。'
+        : '想全屏无浏览器栏？点浏览器菜单「安装应用 / 添加到主屏幕」即可全屏进入。';
+      banner.hidden = false;
+      document.getElementById('pwa-hint-close').addEventListener('click', function () {
+        banner.hidden = true;
+        try { localStorage.setItem('mahjon_pwa_hint', '1'); } catch (e) {}
+      });
+      var installBtn = document.getElementById('pwa-hint-install');
+      window.addEventListener('beforeinstallprompt', function (ev) {
+        ev.preventDefault();
+        var deferred = ev;
+        installBtn.hidden = false;
+        installBtn.addEventListener('click', function () {
+          deferred.prompt();
+          deferred.userChoice.then(function () { installBtn.hidden = true; });
+        });
+      });
+    } catch (e) {}
+  })();
   </script>
 </body>
 </html>

@@ -112,6 +112,43 @@ body:has(#play:not([hidden])) #host-controls .host-btn {
   touch-action: none;
 }
 
+/* PWA 一次性引导条：提示用户「在系统浏览器打开并添加到主屏幕」可全屏无浏览器栏 */
+.pwa-hint {
+  position: fixed;
+  left: 0; right: 0; top: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: rgba(8, 40, 28, 0.95);
+  color: #eaf7ef;
+  font-size: 12px;
+  line-height: 1.4;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+.pwa-hint[hidden] { display: none; }
+.pwa-hint-msg { flex: 1 1 auto; min-width: 0; }
+.pwa-hint-btn {
+  flex: 0 0 auto;
+  background: #1f7a4d;
+  color: #fff;
+  border: 0;
+  border-radius: 6px;
+  padding: 5px 10px;
+  font-size: 12px;
+}
+.pwa-hint-btn[hidden] { display: none; }
+.pwa-hint-close {
+  flex: 0 0 auto;
+  background: transparent;
+  border: 0;
+  color: #cfe9da;
+  font-size: 18px;
+  line-height: 1;
+  padding: 0 4px;
+}
+
 /* 癞子提示：**牌桌左上角**的小胶囊（牌面图 + 牌面左上角「赖」角标），纯展示、不吃点击。
    桌心虽然也亮着那张牌，但补个标记才一眼看出「这把赖哪张」（老吴 2026-10-19）。
    2026-10-25 老吴：放牌桌左上顶部（锚在 #table3d 画布内，不与页面顶栏重叠）。

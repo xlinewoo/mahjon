@@ -11,7 +11,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="柒鞗會" />
-  <link rel="apple-touch-icon" href="/logo-card/icon.png" />
+  <link rel="apple-touch-icon" href="/logo-card/icon-512.png" />
   <link rel="stylesheet" href="./style.css" />
   <link rel="stylesheet" href="./net.css" />
   <link rel="stylesheet" href="./net3d.css" />
@@ -242,5 +242,55 @@
   <!-- 开发模式：需经 http 服务打开（ES Module 不支持 file://）。
        发布单文件请看 build/net.html（由 server 的 /app/net 提供）。 -->
   <script type="module" src="./net3d-main.js"></script>
+
+  <!-- PWA 引导条：在微信/浏览器里打开公网域名会带导航栏，提示用户「在系统浏览器打开并添加到主屏幕」可全屏无栏 -->
+  <div id="pwa-hint" class="pwa-hint" hidden>
+    <span id="pwa-hint-msg" class="pwa-hint-msg"></span>
+    <button id="pwa-hint-install" class="pwa-hint-btn" hidden>安装</button>
+    <button id="pwa-hint-close" class="pwa-hint-close" aria-label="关闭">×</button>
+  </div>
+
+  <script>
+  // 仅注册 SW + 展示一次性引导；不影响游戏逻辑。安全上下文（HTTPS/localhost）外静默失败。
+  (function () {
+    try {
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', function () {
+          navigator.serviceWorker.register('/sw.js').catch(function () {});
+        });
+      }
+    } catch (e) {}
+    try {
+      var standalone = ('standalone' in navigator && navigator.standalone) ||
+        (window.matchMedia && (window.matchMedia('(display-mode: standalone)').matches ||
+          window.matchMedia('(display-mode: fullscreen)').matches));
+      if (standalone) return;                       // 已从主屏全屏进入，无需提示
+      if (localStorage.getItem('mahjon_pwa_hint')) return;
+      var banner = document.getElementById('pwa-hint');
+      var msg = document.getElementById('pwa-hint-msg');
+      if (!banner || !msg) return;
+      var isIOS = /iP(hone|od|ad)/.test(navigator.userAgent) ||
+        (/Macintosh/.test(navigator.userAgent) && 'ontouchend' in document);
+      msg.textContent = isIOS
+        ? '想全屏无浏览器栏？在 Safari 点「分享」→「添加到主屏幕」，从主屏进入即全屏。'
+        : '想全屏无浏览器栏？点浏览器菜单「安装应用 / 添加到主屏幕」即可全屏进入。';
+      banner.hidden = false;
+      document.getElementById('pwa-hint-close').addEventListener('click', function () {
+        banner.hidden = true;
+        try { localStorage.setItem('mahjon_pwa_hint', '1'); } catch (e) {}
+      });
+      var installBtn = document.getElementById('pwa-hint-install');
+      window.addEventListener('beforeinstallprompt', function (ev) {
+        ev.preventDefault();
+        var deferred = ev;
+        installBtn.hidden = false;
+        installBtn.addEventListener('click', function () {
+          deferred.prompt();
+          deferred.userChoice.then(function () { installBtn.hidden = true; });
+        });
+      });
+    } catch (e) {}
+  })();
+  </script>
 </body>
 </html>
