@@ -2,6 +2,8 @@
 import Fastify from 'fastify';
 import multipart from '@fastify/multipart';
 import { readFileSync, existsSync } from 'node:fs';
+import https from 'node:https';
+import http from 'node:http';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import authRoutes from './routes/auth.js';
@@ -21,8 +23,17 @@ const builtHtml = {
   '/app/net3d': resolve(__dirname, '..', 'frontend', 'build', 'net3d.html'),// 3D 网络版（显式别名，同 /app/net）
 };
 
-export async function createApp() {
-  const app = Fastify({ logger: false });
+export async function createApp(options = {}) {
+  // options.https = { cert, key }（Node Buffer/string）时，用 serverFactory 在构造期就
+  // 建好 https server；否则建普通 http server。这样 Socket.IO 挂在 app.server 上时，
+  // 拿到的是正确的（https 或 http）底层 server，wss/ws 自动随之切换。
+  const httpsOpts = options.https;
+  const serverFactory = (handler) => {
+    if (httpsOpts) return https.createServer(httpsOpts, handler);
+    return http.createServer(handler);
+  };
+
+  const app = Fastify({ logger: false, serverFactory });
 
   /**
    * 安全响应头（2026-10-29，P2 安全项）

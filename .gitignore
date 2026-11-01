@@ -30,3 +30,6 @@ frontend/build/__wtest.txt
 .workbuddy/
 .cache/
 .zcode/
+
+# 部署证书（容器 /opt/mahjon/tls/，由路由器同步，不入库）
+/tls/
