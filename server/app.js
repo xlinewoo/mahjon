@@ -1,7 +1,9 @@
 // 应用工厂：创建并配置 Fastify 实例（不在此处 listen，便于测试用 app.inject）
 import Fastify from 'fastify';
 import multipart from '@fastify/multipart';
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, statSync } from 'node:fs';
+import { gzipSync } from 'node:zlib';
+import { createHash } from 'node:crypto';
 import https from 'node:https';
 import http from 'node:http';
 import { dirname, resolve } from 'node:path';
@@ -114,6 +116,21 @@ export async function createApp(options = {}) {
     return reply.type(hit.type).send(readFileSync(hit.file));
   });
 
+  // 单文件产物缓存：按 mtime/size 失效 —— 保留「每请求回源」的热加载语义
+  // （改 build 产物后无需重启 node），但 gzip/ETag 只在文件真变时重算。
+  // 动机（2026-11-02）：2.2MB HTML 裸传 + 无 ETag，外网每次进入全量重下（上行
+  // 小宽带下 3~5s）；gzip 后 ~500KB 且 304 复用时只传 header，首屏/回访均大幅提速。
+  const builtCache = new Map(); // file -> { mtimeMs, size, etag, raw, gzip }
+  function loadBuilt(file) {
+    const st = statSync(file);
+    const hit = builtCache.get(file);
+    if (hit && hit.mtimeMs === st.mtimeMs && hit.size === st.size) return hit;
+    const raw = readFileSync(file);
+    const etag = '"' + createHash('sha1').update(raw).digest('hex').slice(0, 20) + '"';
+    const entry = { mtimeMs: st.mtimeMs, size: st.size, etag, raw, gzip: gzipSync(raw, { level: 6 }) };
+    builtCache.set(file, entry);
+    return entry;
+  }
   const serveBuilt = (path) => async (req, reply) => {
     const file = builtHtml[path];
     if (!existsSync(file)) {
@@ -121,8 +138,20 @@ export async function createApp(options = {}) {
     }
     // ❗单文件页面必须每次回源校验（老吴 2026-10-24）：手机浏览器对无缓存头的 HTML
     //   会疏忽缓存，更新后用户拿到的还是旧页面（「修复了但手机没变化」的根源）。
+    // no-cache = 每次回源 revalidate；配合 ETag 后未变更只回 304（不传 body），
+    //   兼顾「更新即时生效」与「回访秒开」（2026-11-02）。
     reply.header('cache-control', 'no-cache');
-    reply.type('text/html; charset=utf-8').send(readFileSync(file, 'utf8'));
+    const e = loadBuilt(file);
+    reply.header('etag', e.etag);
+    if (req.headers['if-none-match'] === e.etag) return reply.code(304).send();
+    const ae = String(req.headers['accept-encoding'] || '');
+    reply.type('text/html; charset=utf-8');
+    if (ae.includes('gzip')) {
+      reply.header('content-encoding', 'gzip');
+      reply.header('vary', 'Accept-Encoding');
+      return reply.send(e.gzip);
+    }
+    return reply.send(e.raw);
   };
   app.get('/app', serveBuilt('/app'));
   app.get('/app/net', serveBuilt('/app/net'));
