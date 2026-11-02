@@ -3399,6 +3399,54 @@ body:not(.replay-mode) #rp-tools { display: none !important; }
   font-variant-numeric: tabular-nums;
 }
 
+/* ===== iOS 安全区适配（老吴 2026-11-02）=====
+   viewport-fit=cover 让页面铺满物理边缘，灵动岛/状态栏/home 条会盖住贴边元素。
+   env() 始终相对物理屏幕、不随 CSS 旋转走，故分两种模式：
+
+   ① 横持（orientation:landscape，无旋转）：标准四向 inset 避让。
+   ② 竖持 + html.in-play 旋转 hack（body rotate(90deg) translateY(-100%)、
+      transform-origin:left top，见 style.css）后的坐标映射：
+        布局左 ↔ 物理顶（灵动岛/状态栏），布局右 ↔ 物理底（home 条）
+        布局上 ↔ 物理右，               布局下 ↔ 物理左
+      必须交叉映射：left=env(top), right=env(bottom), top=env(right), bottom=env(left)。
+      几何依据与 style.css 注释⑥一致（"bottom:18px 旋转后变成离左边 18px"）。
+      写成 left=env(left)/env(right) 在竖持下恒为 0，等于没避让（2026-11-01 踩坑）。
+
+   #play 是 position:fixed 画布（body 有 transform 时 fixed 相对 body），
+   用 inset 偏移而非 padding —— padding 会把 #table3d/canvas 压缩出不对称留白，
+   inset 只整体平移贴边，canvas 仍 100% 铺满不变形。 */
+@supports (padding: env(safe-area-inset-left)) {
+  /* 大厅/登录等流式页（未旋转）：四向避让 */
+  body {
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  }
+
+  /* 竖持旋转画布：body 即画布，四向 padding 会错位缩进，清零；
+     牌桌画布按交叉映射让出灵动岛（物理顶=布局左）与 home 条（物理底=布局右） */
+  @media (orientation: portrait) {
+    html.in-play body { padding: 0; }
+    html.in-play #play {
+      top: max(2px, env(safe-area-inset-right));
+      bottom: max(2px, env(safe-area-inset-left));
+      left: max(2px, env(safe-area-inset-top));
+      right: max(2px, env(safe-area-inset-bottom));
+      padding: 0;
+    }
+  }
+
+  /* 横持牌桌：无旋转，标准四向；fixed 的 #play 不受 body padding 影响，清零仅为整洁 */
+  @media (orientation: landscape) {
+    html.in-play body { padding: 0; }
+    #play {
+      top: env(safe-area-inset-top);
+      bottom: env(safe-area-inset-bottom);
+      left: env(safe-area-inset-left);
+      right: env(safe-area-inset-right);
+      padding: 0;
+    }
+  }
+}
+
   </style>
 </head>
 <body>
