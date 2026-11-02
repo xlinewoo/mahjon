@@ -847,14 +847,16 @@ body:not(.replay-mode) #rp-tools { display: none !important; }
   }
 
   /* 竖持旋转画布：body 即画布，四向 padding 会错位缩进，清零；
-     牌桌画布按交叉映射让出灵动岛（物理顶=布局左）与 home 条（物理底=布局右） */
+     牌桌画布按交叉映射只让出灵动岛（物理顶=布局左）。
+     老吴 2026-11-02「撑到右边到底」：布局右=物理底（home 条侧）不留避让、
+     桌面/手牌/头像卡一律贴到屏缘（home 条半透明细条压上去无妨）。 */
   @media (orientation: portrait) {
     html.in-play body { padding: 0; }
     html.in-play #play {
       top: max(2px, env(safe-area-inset-right));
       bottom: max(2px, env(safe-area-inset-left));
       left: max(2px, env(safe-area-inset-top));
-      right: max(2px, env(safe-area-inset-bottom));
+      right: 0;
       padding: 0;
     }
   }
