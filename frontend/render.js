@@ -1134,6 +1134,16 @@ function renderSettle() {
     const bits = [];
     if (r.types && r.types.length) bits.push('番型：' + r.types.map((t) => HU_LABELS[t] || t).join(' + '));
     if (r.topType === 'goldTop') bits.push('金顶');
+    // 抢杠标注（2026-11-20，老吴「标注一下抢杠」）：说清谁加杠、被谁抢、为何承包独付
+    if ((r.types || []).includes('qiangGangHu') && Number.isInteger(r.winTile)) {
+      const gangSeat = (r.baoRoles || []).find((x) => x.kind === 'bao' && x.seat !== r.winnerSeat)
+        || (r.baozhuang && r.baozhuang.seat != null ? { seat: r.baozhuang.seat } : null)
+        || r.from;
+      if (gangSeat != null) {
+        bits.push(`抢杠：${seatLabel(typeof gangSeat === 'object' ? gangSeat.seat : gangSeat, r)}`
+          + ` 加杠 ${tileName(r.winTile)} 被抢 —— 被抢者承包独付（加杠有风险，明杠不可抢）`);
+      }
+    }
     if (r.baozhuang) bits.push(`承包：${seatLabel(r.baozhuang.seat, r)} 独付 ${r.baozhuang.amount} 分`);
     if (r.bao) bits.push(`包牌：${seatLabel(r.bao.seat, r)} 独付 ${r.bao.amount} 分`);
     if (Array.isArray(r.rainPayers) && r.rainPayers.length) {
