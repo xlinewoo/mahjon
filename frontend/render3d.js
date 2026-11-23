@@ -1461,11 +1461,12 @@ export function createRender3d(opts = {}) {
     //   E/W 现在**完全对称**，都推到「头像卡外缘贴住屏幕/桌沿」为止。
     //   左侧那三件套（上家头像卡 / 不补牌开关 / 本家头像卡）依旧竖排在列外侧，
     //   卡片本身走 updateReplayLabels 里的出屏兜底（钳到 x≥2），列与卡的关系保持不变。
-    //   cardClear（老吴 2026-11-02「撑到右边到底」二修）：旧 180 折算约 95px——给头像卡
-    //   预留整卡横向空档，手牌列被从桌沿往里推约两行牌宽（浪费）。现收到 30（≈列半厚+2px），
-    //   列贴住木框内缘；头像卡本来就被 updateReplayLabels 出屏兜底钳到贴屏（x≤w-nw-2），
-    //   现在浮在列外端上（半透明卡底可见牌轮廓），E/W 对称。 */
-    const cardClear = (halfW * 30) / w + 0.02;
+    //   cardClear（2026-11-20 三修，老吴「头像挡住手牌」）：11-02 收到 30 后列贴屏缘，
+    //   头像卡被出屏兜底钳回来直接盖在手牌上（上家 W / 下家 E 都压牌）。
+    //   折中：留出一条卡位带 ≈102px（卡 84 + 边距 4 + 列半厚 ≈15），头像卡完整落在
+    //   带内、完全不压牌；代价是列往里让约一张卡的宽度。菜单 ⋯ 钉在 E 卡上方，
+    //   也随之落进带里，不再盖牌。 */
+    const cardClear = (halfW * 204) / w + 0.02;
     const seatXEW = Math.max(0.46, halfW - cardClear);
     seatGroups.E.position.x = seatXEW;
     seatGroups.W.position.x = -seatXEW;
