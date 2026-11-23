@@ -1388,6 +1388,12 @@ export function createRender3d(opts = {}) {
     //   HAND_Z=0.60、牌外缘 0.71，距木框内缘 0.74 还有 0.03，四边手牌完整可见。）
     const halfH = Math.max(0.80, xContent / aspect);
     const halfW = halfH * aspect;
+    /* 卡位带（2026-11-20 四修，老吴「头像压手牌 / 列压我的手牌」反复横跳的根治）：
+       左右各留 ≈102px 的空带（头像卡 84 + 边距），**整个牌桌横向收进带内**——
+       木框、E/W 竖列、S/N 手牌行全部以 effHalfW 为界，谁也不会压谁；
+       头像卡浮在桌沿外的绿毡上。半宽不够时（超窄视口）保底 0.5。 */
+    const stripWorld = (204 * halfW) / w;               // 两侧空带总宽（世界单位）
+    const effHalfW = Math.max(0.5, halfW - stripWorld / 2);
     camera.left = -halfW;
     camera.right = halfW;
     camera.top = halfH;
@@ -1399,13 +1405,13 @@ export function createRender3d(opts = {}) {
     camera.lookAt(0, 0, FOCUS_Z);
     // 桌面动态拉宽/收紧（2026-10-24 二修）：桌呢正好铺到视口边（宽×深），
     // 上下框条贴屏边、左右框条贴侧边 —— 不再多铺两道木纹空带（老吴：最多留一行文字栏）。
-    const feltW = halfW * 2;
+    const feltW = effHalfW * 2;
     const feltD = halfH * 2;
     felt.scale.x = feltW / FELT_SIZE;
     felt.scale.y = feltD / FELT_SIZE;
     for (const fm of frameMeshes) {
       if (fm.userData.axis === 'x') {
-        fm.position.x = fm.userData.sign * (halfW - FRAME_W / 2);
+        fm.position.x = fm.userData.sign * (effHalfW - FRAME_W / 2);
         fm.scale.y = 1;
       } else if (fm.userData.axis === 'z') {
         fm.position.z = fm.userData.sign * (halfH - FRAME_W / 2);
@@ -1433,7 +1439,7 @@ export function createRender3d(opts = {}) {
        （否则 1.905 与 1.90 之间会来回抖，三家差一丝、肉眼看不出来但量测对不上）。 */
     const RIVER_NEAR_EDGE = RIVER_OUT + (TILE_H * RIVER_SCALE + 0.008) / 2;   // 牌河近手牌一行外沿 |z|
     const nCapZ = (EDGE_Z - RIVER_NEAR_EDGE - 0.012) / TILE_H;
-    const nCapW = (2 * (halfW - 0.06) - 0.01) / (14 * STEP_HAND + TILE_W);
+    const nCapW = (2 * (effHalfW - 0.06) - 0.01) / (14 * STEP_HAND + TILE_W);
     const zS = EDGE_Z - (TILE_H * MY_HAND_SCALE) / 2;   // 本家手牌中心 z
     const handZ0 = Math.max(0.60, zS);
     /* E/W 竖列的可用带宽（老吴 2026-10-30 十七轮）：从「本家手牌**内缘**」量到对侧，
@@ -1466,8 +1472,9 @@ export function createRender3d(opts = {}) {
     //   折中：留出一条卡位带 ≈102px（卡 84 + 边距 4 + 列半厚 ≈15），头像卡完整落在
     //   带内、完全不压牌；代价是列往里让约一张卡的宽度。菜单 ⋯ 钉在 E 卡上方，
     //   也随之落进带里，不再盖牌。 */
-    const cardClear = (halfW * 204) / w + 0.02;
-    const seatXEW = Math.max(0.46, halfW - cardClear);
+    /* E/W 列贴木框内缘：木框已收进带内，头像卡浮在框外的绿毡带上，互不相压。 */
+    const cardClear = (TILE_H * COMMON_HAND_SCALE) / 2 + (8 * halfW) / w;
+    const seatXEW = Math.max(0.46, effHalfW - cardClear);
     seatGroups.E.position.x = seatXEW;
     seatGroups.W.position.x = -seatXEW;
     /* E/W 竖列带的可用 |z| 上限（外沿口径）：EW_Z_MAX 直接就是列的**外缘**，
@@ -1477,7 +1484,7 @@ export function createRender3d(opts = {}) {
     HAND_Z = handZ0;
     EW_Z_MAX = ewZMax();
     EW_Z_MIN = -EW_Z_MAX;
-    curHalfW = halfW;
+    curHalfW = effHalfW;   // S/N 行预算同收进带内（否则本家副露/手牌会顶进 E/W 列）
     curHalfH = halfH;
     updateHandTopVar(h, null);
     updateReplayLabels(currentView);
