@@ -57,7 +57,9 @@ import {
 import { state } from './render-state.js';
 import { assertDriver } from './driver-contract.js';
 import { $, esc, flash } from './ui-utils.js';
+import { showShare } from './share.js';
 import { renderAchievementNotices, resetAchievementNotices } from './achievements.js';
+import { sfx } from './sfx.js';
 import {
   showStats,
   showTenpai,
@@ -1180,21 +1182,39 @@ function renderSettle() {
     card.appendChild(b);
   }
 
+  // 「准备下一局 / 关闭」+「分享本局」并排一行（2026-11-20）：不增加弹窗高度
   const btn = document.createElement('button');
   btn.className = 'st-again';
   btn.type = 'button';
+  const actions = document.createElement('div');
+  actions.className = 'st-actions';
   if (isReplay) {
     // 回放只读汇总：不放「准备下一局」（会误开真实牌桌），改为「关闭」回看牌桌/进度条
     btn.textContent = '关闭';
     btn.addEventListener('click', () => { box.hidden = true; });
+    actions.appendChild(btn);
   } else {
     btn.textContent = state.newGameLabel;
     btn.addEventListener('click', newGame);
+    actions.appendChild(btn);
+    // 「分享本局」（2026-11-20）：生成战绩图，长按保存/转发
+    const sh = document.createElement('button');
+    sh.type = 'button';
+    sh.className = 'st-share';
+    sh.textContent = '分享本局';
+    sh.addEventListener('click', showShare);
+    actions.appendChild(sh);
   }
-  card.appendChild(btn);
+  card.appendChild(actions);
 
   box.hidden = false;
   fitSettleCard(card);
+  // 结算音效（2026-11-20）：胡牌 = 胡牌琶音；荒庄 = 轻金币。回放打开不重复响
+  if (!isReplay && !box.dataset.played) {
+    box.dataset.played = '1';
+    sfx.play(r.type === 'win' ? 'win' : 'coin');
+    setTimeout(() => { delete box.dataset.played; }, 1200);
+  }
 }
 
 /**
@@ -1247,6 +1267,10 @@ function renderSeatLine() {
 /* ------------------------------------------------------------------ */
 
 function renderAll() {
+  // 摸牌音效：我的手牌变多（且不是刚结算的重置）时响一声（2026-11-20）
+  const meHand = state.view && state.view.me && Array.isArray(state.view.me.hand) ? state.view.me.hand.length : -1;
+  if (meHand >= 0 && state.prevHandLen >= 0 && meHand > state.prevHandLen && state.view.phase !== 'settled') sfx.play('draw');
+  state.prevHandLen = meHand;
   renderSeatLine();
   if (state.show2dTable !== false) {
     renderOtherSeat($('seat-top'), (state.mySeat + 2) % 4, state.view);
@@ -1368,10 +1392,10 @@ function renderTenpaiButton() {
   const r = currentTenpai();
   // 老吴 2026-10-01「页面高度固定」：胡牌提示按钮**始终占位**，仅未听牌时置灰禁用，
   // 否则听牌时按钮出现会把顶栏挤宽 → 座位行文案换行 → 顶栏变高 → 牌桌随之抖动。
+  // 2026-11-20：未听牌时改为「为什么不能胡」—— 新手最需知道的就是这个，不再置灰。
   btn.hidden = false;
-  btn.disabled = !r;
-  btn.textContent = r ? `胡牌提示 ${r.waits.length}` : '胡牌提示';
-  if (!r) $('tenpai').hidden = true;
+  btn.disabled = false;
+  btn.textContent = r ? `胡牌提示 ${r.waits.length}` : '为什么不能胡';
 }
 
 
@@ -1398,6 +1422,8 @@ function actionStillLegal(action) {
 }
 
 async function doAction(action) {
+  if (state.actionPending) return;
+  if (['peng', 'gang', 'chi', 'xu', 'an', 'zhi', 'redgang', 'skingang', 'wildgang'].includes(action.type)) sfx.play('claim');
   if (state.actionPending) return;
   if (!actionConsistent(action, state.view) || !actionStillLegal(action)) {
     state.selectedTile = null;

@@ -106,12 +106,19 @@ export function createNetDriver(opts = {}) {
   socket.on('error', onError);
   socket.on('disconnect', onDisconnect);
 
+  /* 快捷短语广播（2026-11-20）：收到就转发给监听者，不影响牌局状态 */
+  const onEmote = (p) => { for (const fn of [...emoteListeners]) { try { fn(p); } catch (_) {} } };
+  const emoteListeners = new Set();
+  socket.on('table:emote', onEmote);
+
   /** 解开订阅（离开牌桌时调用；不调的话旧驱动会继续吃新载荷） */
   function detach() {
     socket.off('table:state', onState);
     socket.off('error', onError);
     socket.off('disconnect', onDisconnect);
+    socket.off('table:emote', onEmote);
     listeners.clear();
+    emoteListeners.clear();
   }
 
   /* ---------------- 动作 ---------------- */
@@ -208,6 +215,9 @@ export function createNetDriver(opts = {}) {
     getPayload: () => payload,
     /** 订阅每帧载荷；返回退订函数 */
     onState(fn) { listeners.add(fn); return () => listeners.delete(fn); },
+    /** 快捷短语：发（白名单校验在服务端）/ 收（广播） */
+    emote(text) { socket.emit('table:emote', { text }, () => {}); },
+    onEmote(fn) { emoteListeners.add(fn); return () => emoteListeners.delete(fn); },
     get lastError() { return lastError; },
   };
 }

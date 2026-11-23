@@ -43,6 +43,8 @@ import { createMatchStats } from './stats.js';
 import { $, esc, flash } from './ui-utils.js';
 import { initReplay } from './replay.js';
 import { createExitGame } from './exit-game.js';
+import { sfx } from './sfx.js';
+import { openRules } from './rules-help.js';
 
 // 网络版「本场战绩」聚合器（维度1/2/3 的数据源）；维度4 走后端 SQLite，不在这里。
 const matchStats = createMatchStats();
@@ -293,6 +295,7 @@ function showLobby(key) {
   document.body.classList.toggle('auth-open', name === LOBBY_VIEWS.auth);
   // 大厅/登录页不吃「竖屏自动横屏」（style.css 的 html.in-play 作用域，老吴 2026-10-24）
   document.documentElement.classList.remove('in-play');
+  document.body.classList.remove('playing');   // 与 showPlay 的 add 成对（net3d.css 老内核兜底类）
   $('lobby').hidden = false;
   $('play').hidden = true;
   $('waiting').hidden = true;
@@ -302,9 +305,64 @@ function showLobby(key) {
   }
 }
 
+/* 快捷短语（2026-11-20）：与服务端白名单保持一致，全桌广播、不落库 */
+const EMOTES = [
+  '打得号！', '对不起～', '快点唦', '稳到', '歪了歪了', '手气好得很',
+  '有点虚', '来了来了', '哎呀莫慌', '恭喜恭喜', '😂', '😅', '🤔', '👍', '🎉', '🙏',
+];
+
+/** 显示一条快捷短语气泡：顶部居中、3 秒自动消失，多条竖排（不遮挡牌面中心） */
+function showEmote(seat, text) {
+  let layer = document.getElementById('emote-layer');
+  if (!layer) {
+    layer = document.createElement('div');
+    layer.id = 'emote-layer';
+    document.getElementById('app').appendChild(layer);
+  }
+  const b = document.createElement('div');
+  b.className = 'emote-bubble';
+  const d = S.driver ? (S.driver.seatToDir[seat] || '?') : '?';
+  b.innerHTML = `<b>${d}</b> ${esc(text)}`;
+  layer.appendChild(b);
+  while (layer.children.length > 4) layer.removeChild(layer.firstChild);
+  setTimeout(() => { b.classList.add('emote-out'); }, 2600);
+  setTimeout(() => { b.remove(); }, 3000);
+}
+
+/** 快捷短语选择器：点 💬 弹出，选一条即发送 */
+function openEmotePicker() {
+  let pop = document.getElementById('emote-picker');
+  if (!pop) {
+    pop = document.createElement('div');
+    pop.id = 'emote-picker';
+    pop.hidden = true;
+    pop.addEventListener('click', (e) => e.stopPropagation());
+    document.getElementById('play').appendChild(pop);
+  }
+  if (!pop.hidden) { pop.hidden = true; return; }
+  pop.innerHTML = '';
+  for (const t of EMOTES) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'emote-opt';
+    b.textContent = t;
+    b.addEventListener('click', () => {
+      if (S.driver && S.driver.emote) S.driver.emote(t);
+      sfx.play('emote');
+      pop.hidden = true;
+    });
+    pop.appendChild(b);
+  }
+  pop.hidden = false;
+  const dismiss = () => { pop.hidden = true; };  // 点别处收起（一次性）
+  setTimeout(() => document.addEventListener('pointerdown', dismiss, { once: true }), 0);
+}
+
 function showPlay() {
   // 进牌桌才允许竖屏自动横屏（与 showLobby 的 remove 成对）
   document.documentElement.classList.add('in-play');
+  // body.playing：net3d.css 用它替代 `:has(#play:not([hidden]))`（老 X5 内核不支持 :has）
+  document.body.classList.add('playing');
   $('lobby').hidden = true;
   $('play').hidden = false;
   $('waiting').hidden = true;
@@ -1378,6 +1436,10 @@ function onStatePayload(p) {
     S.driver = createNetDriver({ socket: S.socket, initial: p });
     setGame(S.driver);
     S.driver.onState(applyPayload);
+    // 快捷短语广播 → 气泡（2026-11-20）；自己发的也会收到自己那条（服务端广播全桌）
+    S.driver.onEmote((e) => {
+      if (e && Number.isInteger(e.seat)) showEmote(e.seat, String(e.text || ''));
+    });
     applyPayload(p);
     return;
   }
@@ -1758,6 +1820,48 @@ function wire() {
 
 async function boot() {
   wire();
+  // 快捷短语按钮（2026-11-20）：顶栏加一颗 💬（3D 模式收在「⋯」菜单里）
+  const btns = document.querySelector('#play .topbar-btns');
+  if (btns && !document.getElementById('btn-emote')) {
+    const be = document.createElement('button');
+    be.id = 'btn-emote';
+    be.type = 'button';
+    be.title = '快捷短语';
+    be.textContent = '💬';
+    be.addEventListener('click', (e) => { e.stopPropagation(); openEmotePicker(); });
+    btns.appendChild(be);
+  }
+  // 音效开关（2026-11-20）：🔊/🔇 切换，状态存 localStorage（sfx.js 持久化）
+  if (btns && !document.getElementById('btn-sound')) {
+    const bs = document.createElement('button');
+    bs.id = 'btn-sound';
+    bs.type = 'button';
+    bs.title = '音效开关';
+    const paintSound = () => { bs.textContent = sfx.muted ? '🔇' : '🔊'; };
+    paintSound();
+    bs.addEventListener('click', (e) => { e.stopPropagation(); sfx.toggle(); paintSound(); });
+    btns.appendChild(bs);
+  }
+  // 规则速查：牌桌顶栏 + 大厅页头各一个入口（2026-11-20）
+  if (btns && !document.getElementById('btn-rules')) {
+    const br = document.createElement('button');
+    br.id = 'btn-rules';
+    br.type = 'button';
+    br.title = '规则速查';
+    br.textContent = '规则';
+    br.addEventListener('click', (e) => { e.stopPropagation(); openRules(); });
+    btns.appendChild(br);
+  }
+  const lbHead = document.querySelector('#lobby .lb-head');
+  if (lbHead && !document.getElementById('lb-rules')) {
+    const lr = document.createElement('button');
+    lr.id = 'lb-rules';
+    lr.type = 'button';
+    lr.className = 'lb-btn';
+    lr.textContent = '规则速查';
+    lr.addEventListener('click', openRules);
+    lbHead.appendChild(lr);
+  }
   // 网络版没有摸风面板（驱动 winds.entries = null），#winds 在 net.html 里就是 hidden，
   // 这里**不要**调 render.js 的 renderWinds()——它在 setGame 之前会读 null.winds 直接抛错。
 

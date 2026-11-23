@@ -42,7 +42,7 @@
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:net';
 import { randomUUID } from 'node:crypto';
-import { writeFileSync, mkdirSync, existsSync, rmSync } from 'node:fs';
+import { writeFileSync, mkdirSync, existsSync, rmSync, createWriteStream } from 'node:fs';
 import { createGame, act, viewFor, legalActions } from '../src/engine/game.js';
 import { createRuleSet } from '../src/engine/rules.js';
 import { analyzeTenpai } from '../src/engine/tenpai.js';
@@ -397,6 +397,7 @@ function netFrames() {
 
 /** NET 模式主循环：每档宽度量一遍整条大厅路径 */
 async function runNet(send) {
+  console.error('[probe] runNet start');
   await send('Page.addScriptToEvaluateOnNewDocument', { source: NET_STUB });
   const frames = netFrames();
   const fileUrl = 'file://' + BUILD_HTML;
@@ -407,9 +408,12 @@ async function runNet(send) {
     for (const mobile of [false, true]) {
       await send('Emulation.setDeviceMetricsOverride', { width: w, height: h, deviceScaleFactor: 2, mobile });
       await send('Page.navigate', { url: fileUrl });
+      console.error('[probe] nav', w, h, mobile);
       // 等大厅真正解析出来（`#auth-name` 是静态节点，不依赖 net-main.js 跑完）
       await waitFor(send, "document.querySelector('#auth-name')");
+      console.error('[probe] auth ready');
       const raw = (await evalIn(send, netDriverSrc(frames), { awaitPromise: true })) ?? '{}';
+      console.error('[probe] driver done');
       const out = JSON.parse(raw);
       // 桌面模式（不兜底）的溢出量才算数；移动模式只看「被撑宽多少」
       if (!mobile) {
@@ -424,8 +428,16 @@ async function runNet(send) {
         if (last.w === w && !last.mobileW) last.mobileW = Math.max(...Object.values(out.stages).map((s) => s.scrollW));
       }
     }
-    const shot = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true });
-    writeFileSync(`${SHOT_DIR}/net-w${w}x${h}.png`, Buffer.from(shot.data, 'base64'));
+    /* 2026-11-20：截图整体改为**可选**（SHOT_DIR 显式设置才截）——
+       这台机器的 Chrome 157 headless 上 Page.captureScreenshot（无论是否
+       captureBeyondViewport）都可能在重页面上压垮渲染器 → ws 断连 → 全脚本挂死。
+       溢出本身已有数值判定，截图只是人看图用的。 */
+    if (process.env.SHOT_DIR) {
+      try {
+        const shot = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
+        writeFileSync(`${SHOT_DIR}/net-w${w}x${h}.png`, Buffer.from(shot.data, 'base64'));
+      } catch (e) { console.error('   (截图失败，跳过：' + String(e).slice(0, 80) + ')'); }
+    }
   }
   return { allOk, report, net: true };
 }
@@ -438,8 +450,13 @@ function makeCdp(ws) {
   const pending = new Map();
   ws.onmessage = (ev) => {
     const m = JSON.parse(ev.data);
+    if (m.method === 'Runtime.exceptionThrown') console.error('[page-exc]', JSON.stringify(m.params.exceptionDetails).slice(0, 400));
+    if (m.method === 'Runtime.consoleAPICalled' && m.params.type === 'error') console.error('[page-console]', JSON.stringify(m.params.args).slice(0, 300));
+    if (m.method === 'Target.targetDestroyed') console.error('[target-destroyed]', JSON.stringify(m.params).slice(0, 160), '@', Date.now());
+    if (m.method === 'Inspector.detached') console.error('[inspector-detached]', JSON.stringify(m.params).slice(0, 160));
     if (m.id && pending.has(m.id)) { pending.get(m.id)(m); pending.delete(m.id); }
   };
+  ws.onclose = () => { console.error('[ws-closed] @', Date.now()); for (const [k, fn] of [...pending]) { pending.delete(k); fn({ error: { message: 'ws closed' } }); } };
   return (method, params = {}) => new Promise((res, rej) => {
     const mid = ++id;
     pending.set(mid, (m) => (m.error ? rej(new Error(method + ': ' + JSON.stringify(m.error))) : res(m.result)));
@@ -476,7 +493,10 @@ async function connect(port) {
     '--headless=new', '--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage',
     '--allow-file-access-from-files', `--user-data-dir=${profile}`,
     `--remote-debugging-port=${port}`, '--hide-scrollbars', 'about:blank',
-  ], { stdio: 'ignore' });
+  ], { stdio: ['ignore', 'ignore', process.env.CHROME_ERR ? 'pipe' : 'ignore'] });
+  if (process.env.CHROME_ERR) {
+    try { chrome.stderr.pipe(createWriteStream(process.env.CHROME_ERR, { flags: 'a' })); } catch { /* 调试用 */ }
+  }
 
   let target = null;
   for (let i = 0; i < 80; i++) {

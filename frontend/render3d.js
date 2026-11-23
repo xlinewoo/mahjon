@@ -25,6 +25,7 @@ import { sortMeldsForDisplay } from '../src/engine/melds.js';
 import { countFan } from '../src/engine/score.js';
 import { createRuleSet } from '../src/engine/rules.js';
 import { state } from './render-state.js';
+import { sfx } from './sfx.js';
 
 /* ---------------- 尺寸常量（与 mahjong-3d 对齐） ---------------- */
 const TILE_W = 0.045, TILE_H = 0.062, TILE_D = 0.026, TILE_GAP = 0.004;
@@ -181,6 +182,7 @@ export function createRender3d(opts = {}) {
   camera.lookAt(0, 0, FOCUS_Z);
 
   let renderer = null;
+  let webglFailed = false;
   let controls = null;
   let container = null;
   let labelLayer = null;
@@ -207,8 +209,10 @@ export function createRender3d(opts = {}) {
     controls.maxPolarAngle = 1.25;
     controls.update();
   } catch (err) {
-    // 无 WebGL（旧浏览器 / 无头缺 GL）：场景仍可构建，便于测试与降级提示
+    // 无 WebGL（旧浏览器 / 微信 X5 老内核 / 无头缺 GL）：置 webglFailed，
+    // net3d-main 收到后自动降级到 2D 牌桌（render.js 那套），不再只弹一句 toast。
     renderer = null;
+    webglFailed = true;
     onMessage('WebGL 不可用：' + (err && err.message ? err.message : err));
   }
 
@@ -221,6 +225,17 @@ export function createRender3d(opts = {}) {
   sun.shadow.camera.left = -1.5; sun.shadow.camera.right = 1.5;
   sun.shadow.camera.top = 1.5; sun.shadow.camera.bottom = -1.5;
   scene.add(sun);
+
+  /* 桌面氛围灯（2026-11-20）：顶部暖色聚光 —— 毕心亮、四角自然压暗（配 CSS 暗角），
+     让桌面不再是「平铺色块」而有一盏打下来的灯光感。penumbra 拉满避免硬边。 */
+  const spot = new THREE.SpotLight(0xfff2d8, 0.9);
+  spot.position.set(0, 3.2, 0.1);
+  spot.target.position.set(0, 0, 0);
+  spot.angle = 0.72;
+  spot.penumbra = 1;
+  spot.decay = 0.8;
+  scene.add(spot);
+  scene.add(spot.target);
 
   /* ---- 桌面（老吴 2026-10-24 美化）：绿绒台面 + 木质桌沿 ----
    * 此前牌直接浮在一片纯绿背景上（scene.background）。这里补两样，全部
@@ -442,6 +457,26 @@ export function createRender3d(opts = {}) {
   const riverGroup = new THREE.Group();
   scene.add(riverGroup);
   let wildMesh = null;
+
+  /* 最新弃牌高亮（2026-11-20）：金色光环垫在刚打出的那张牌下面 ——
+     "刚打了什么"是防点炮的关键信息，必须一眼可辨。牌河每次 render 全量重建，
+     环也跟着重建（位置由 layoutRiver 算好）。 */
+  const lastRing = new THREE.Mesh(
+    new THREE.RingGeometry(TILE_W * 0.55, TILE_W * 0.66, 32),
+    new THREE.MeshBasicMaterial({ color: 0xffd34d, transparent: true, opacity: 0.9, side: THREE.DoubleSide, depthWrite: false }),
+  );
+  lastRing.rotation.x = -Math.PI / 2;
+  lastRing.visible = false;
+  riverGroup.add(lastRing);
+
+  /* 弃牌飞入动画 + 落牌音效：只在「牌河真的多了一张」时触发一次
+     （render 每帧都可能重铺牌河，用弃牌流水长度做幂等键）。 */
+  let riverAnimId = -1;   // 上次触发动画时的 discardLog 长度
+  function animateNewDiscard(mesh) {
+    mesh.position.y = mesh.userData.baseY + 0.09;
+    tween(mesh.position, { y: mesh.userData.baseY }, 0.22);
+    sfx.play('discard');
+  }
 
   /* ---- 轻量 tween（仅 hover 用）---- */
   const tweens = [];
@@ -877,6 +912,9 @@ export function createRender3d(opts = {}) {
       m.userData.baseY = m.position.y;
       riverGroup.add(m);
     }
+    // 本列末张（可能为空）：供 layoutRiver 判定「最新弃牌」用
+    const stripLast = n > 0 ? riverGroup.children[riverGroup.children.length - 1] : null;
+    return stripLast;
   }
   function layoutRiver(view) {
     const bySeat = {};
@@ -885,14 +923,35 @@ export function createRender3d(opts = {}) {
       const k = keyOf(seat);
       (bySeat[k] || (bySeat[k] = [])).push({ seat, tile });
     };
+    let lastEntry = null;
     if (Array.isArray(view.discardLog) && view.discardLog.length) {
-      for (const d of view.discardLog) if (d) push(d.seat, d.tile);
+      for (const d of view.discardLog) if (d) { push(d.seat, d.tile); lastEntry = d; }
     } else {
       // 兼容本地演示 / 旧合成帧（没有 discardLog）：按座位分组
       for (const t of view.me.discards || []) push(view.me.seat, t);
       for (const o of view.others || []) for (const t of o.discards || []) push(o.seat, t);
+      const all = [].concat(view.me.discards || [], ...(view.others || []).map((o) => o.discards || []));
+      lastEntry = all.length ? { seat: all.length ? null : null } : null;
     }
-    for (const k of LOCAL_ORDER) layoutRiverStrip(k, bySeat[k] || []);
+    /* 各列重建，并回收本列末张（认领「最新弃牌」用） */
+    let lastMesh = null;
+    for (const k of LOCAL_ORDER) {
+      const tail = layoutRiverStrip(k, bySeat[k] || []);
+      if (tail && lastEntry && tail.userData.seat === lastEntry.seat && tail.userData.code === lastEntry.tile) lastMesh = tail;
+    }
+    // 最新弃牌：金环垫底 + 落牌动画（幂等：同一张只动画/响一次）
+    if (lastMesh && lastEntry) {
+      lastRing.visible = true;
+      lastRing.scale.setScalar(lastMesh.userData.baseScale || 1);
+      lastRing.position.set(lastMesh.position.x, 0.0012, lastMesh.position.z);
+      const id = Array.isArray(view.discardLog) ? view.discardLog.length : -1;
+      if (id !== riverAnimId && id > 0) {
+        riverAnimId = id;
+        animateNewDiscard(lastMesh);
+      }
+    } else {
+      lastRing.visible = false;
+    }
   }
 
   /** 悬停/点手牌时，把牌河里同牌面的牌抬起来（方形放大高亮，不画圆圈） */
@@ -1147,6 +1206,7 @@ export function createRender3d(opts = {}) {
      轮到谁行动谁的头像外圈流光（思考中）。回放时名字/得分用注入的整场数据。 */
   function ensureReplayLabels() {
     if (labelLayer || !container || typeof document === 'undefined') return;
+    if (!renderer) return;   // 2D 降级态不建座位 HUD（没画布可投影）
     labelLayer = document.createElement('div');
     labelLayer.className = 'r3d-seat-labels';
     labelLayer.hidden = true;
@@ -1229,6 +1289,7 @@ export function createRender3d(opts = {}) {
          —— 断线/重连服务端都会广播该帧，所以不依赖下一帧 state 也能立刻变灰/复原。 */
       ui.node.classList.toggle('offline', !!onlineBySeat && onlineBySeat[seat] === false);
       ui.node.classList.toggle('row-mode', key === 'N');   // 对家横卡：名称/得分在头像右侧
+      ui.node.classList.add('seat-' + key);   // 方位色：E/W/S/N 各自的边框/名牌色（net3d.css）
       const nw = ui.node.offsetWidth || 64;
       const nh = ui.node.offsetHeight || 66;
       // 左列三件套围绕屏幕竖直中线对称：W 卡底边在中线上方 LABEL_GAP，S 卡顶边在下方 LABEL_GAP，
@@ -1543,6 +1604,7 @@ export function createRender3d(opts = {}) {
 
   return {
     mount, unmount, render, applySize, reloadTextures, pickAt, seatHandSpan, setOnline,
+    get webglFailed() { return webglFailed; },
     set onAction(fn) { onAction = fn || (() => {}); },
     set onMessage(fn) { onMessage = fn || (() => {}); },
     get scene() { return scene; },

@@ -20,6 +20,21 @@ import { initTileSkin3dSelect, tileSkin3dUrl } from './tile-skin3d.js';
 /* 这样既满足「3D 由 view 驱动」，又不丢现有的操作条、结算、战绩等 UI。 */
 /* ------------------------------------------------------------------ */
 let render3d = null;
+/* WebGL 降级开关（老微信 X5 / 旧内核建不出 GL 上下文时置 false）：
+   false 后不再建 3D 渲染器，改用 render.js 的 2D 牌桌（#table 常规渲染）。
+   CSS 侧：body 摘掉 mode-3d，net3d.css 对 #table 的隐藏规则只作用于 mode-3d。 */
+let gl3d = true;
+
+function fallback2d(reason) {
+  if (!gl3d) return;
+  gl3d = false;
+  if (render3d) { render3d.unmount(); render3d = null; }
+  document.body.classList.remove('mode-3d');
+  set2dTableVisible(true);
+  const host = document.getElementById('table3d');
+  if (host) host.style.display = 'none';
+  flash('本机浏览器不支持 3D 牌桌，已自动切换到 2D 牌桌' + (reason ? '（' + reason + '）' : ''));
+}
 
 /* render.js 每次 renderAll 收尾都调 relocateHud：doAction 的 finally 也会重绘一次，
 没有这个钩子时操作条会被 renderMySeat 塞回隐藏的 2D 座位，3D 里就"消失"了。 */
@@ -43,6 +58,7 @@ addAfterRender(() => {
 
 /** 懒创建 3D 渲染器并挂到 #table3d（幂等） */
 function ensure3d() {
+  if (!gl3d) return null;
   if (render3d) return render3d;
   const host = document.getElementById('table3d');
   if (!host) return null;
@@ -54,7 +70,8 @@ function ensure3d() {
     onMessage: (msg) => flash(msg),
   });
   render3d.mount(host);
-  return render3d;
+  if (render3d.webglFailed) fallback2d('WebGL 不可用');
+  return gl3d ? render3d : null;
 }
 
 /**
@@ -158,6 +175,10 @@ function pinFloaters() {
  * 位置由 render3d 写进容器的 CSS 变量 --hand-top（见 net3d.css）动态贴合手牌。
  */
 function relocateHud() {
+  // 听牌提示条出现时给 #controls 打 .reveal-on（老内核不支持 :has 的 CSS 兑底）
+  const ctlEl = document.getElementById('controls');
+  if (ctlEl) ctlEl.classList.toggle('reveal-on', !!ctlEl.querySelector('.reveal-prompt'));
+  if (!gl3d) return;   // 2D 降级态：操作条留在 2D 座位里，不往画布上搬
   const canvasBox = document.getElementById('table3d');
   const controls = document.getElementById('controls');
   if (canvasBox && controls && controls.parentNode !== canvasBox) canvasBox.appendChild(controls);
@@ -221,6 +242,10 @@ function updateWildBadge(view) {
 // body 标记给 CSS 用（replay-mode 的 2D 表面规则对 3D 页失效），渲染开关给 render.js 用。
 document.body.classList.add('mode-3d');
 set2dTableVisible(false);
+
+/* 强制 2D 逃生开关（2026-11-20）：/app?2d=1 —— WebGL 建不出来或用户想用 2D 牌桌时，
+   URL 加 ?2d=1 直接走降级路径（等价于 WebGL 不可用的自动降级）。 */
+if (/[?&]2d=1/.test(location.search)) fallback2d('强制 2D 模式');
 
 // 右上角菜单钮（老吴 2026-10-24）：胡牌提示/战绩/退出 收进「⋯」，点开纵向菜单。
 const btnsBox = document.querySelector('#play .topbar-btns');
@@ -331,9 +356,12 @@ const lobby = bootNetLobby({
       r3.render(view, S.driver);
       r3.applySize();
     }
-    updateWildBadge(view);
-    updateCenterHud(view);
-    relocateHud();
+    if (gl3d) {
+      updateWildBadge(view);
+      updateCenterHud(view);
+      relocateHud();
+    }
+    // 2D 降级态：render.js 的 renderAll 已渲染 2D 牌桌，无需再做 3D 附加动作
   },
   applyPlayers,
 });

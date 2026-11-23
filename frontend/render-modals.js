@@ -12,6 +12,35 @@
 import { state } from './render-state.js';
 import { $, esc } from './ui-utils.js';
 import { makeTileEl, thEl, tdEl } from './render-widgets.js';
+import { RED_DRAGON } from '../src/engine/tiles.js';
+
+/**
+ * 「为什么还不能胡」解释器（2026-11-20）：把引擎的硬规则翻译成人话。
+ * 只用 view 里的明面信息（手牌/副露/癞子/红中），不重复引擎判定 ——
+ * 引擎说不能胡，这里负责说清“卡在哪一条规则上”。
+ */
+export function winBlockers(view) {
+  const out = [];
+  const me = view && view.me;
+  if (!me || !Array.isArray(me.hand)) return out;
+  const hand = me.hand;
+  const reds = hand.filter((t) => t === RED_DRAGON).length;
+  if (reds > 0) out.push(`手里还有 ${reds} 张红中 —— 红中只能杠（+1 番），持红中本局不能胡，先杠掉`);
+  const wild = view.wildTile;
+  if (Number.isInteger(wild)) {
+    const wc = hand.filter((t) => t === wild).length;
+    if (wc > 1) out.push(`癞子（万能牌）有 ${wc} 张 —— 小胡要求手里癞子不超过 1 张，多出的只能杠掉`);
+  }
+  const meldTiles = (me.melds || []).reduce((n, m) => n + ((m && m.tiles) ? m.tiles.length : 0), 0);
+  if ((hand.length + meldTiles) % 3 !== 2) {
+    out.push('刚吃/碰/杠完还没出牌（或牌数不成局）—— 先打出一张，再听牌');
+  }
+  if (out.length === 0) {
+    out.push('牌型还没成型：面子（顺子/刻子）没凑齐，或将牌不是 2 / 5 / 8。');
+    out.push('轮到你出牌时，顶栏按钮会变成「胡牌提示 N」—— 点开看打哪张能听、听哪几张。');
+  }
+  return out;
+}
 
 /* ------------------------------------------------------------------ */
 /* 统计弹窗：本场战绩 + 分析报表（维度1 / 维度3）                         */
@@ -283,7 +312,33 @@ export function showTenpai() {
   const r = currentTenpai();
   const card = $('tenpai-card');
   card.textContent = '';
-  if (!r) { $('tenpai').hidden = true; return; }
+  if (!r) {
+    // 未听牌：不再直接关窗，改为解释「为什么还不能胡」（2026-11-20，降新手门槛）
+    $('tenpai').hidden = false;
+    const title = document.createElement('h3');
+    title.textContent = '为什么还不能胡？';
+    card.appendChild(title);
+    const sub = document.createElement('div');
+    sub.className = 'tp-sub';
+    sub.textContent = '现在还没听牌 —— 逐条对照，差哪补哪：';
+    card.appendChild(sub);
+    const list = document.createElement('div');
+    list.className = 'tp-list tp-why';
+    for (const line of winBlockers(state.view)) {
+      const row = document.createElement('div');
+      row.className = 'tp-why-row';
+      row.textContent = line;
+      list.appendChild(row);
+    }
+    card.appendChild(list);
+    const close = document.createElement('button');
+    close.type = 'button';
+    close.className = 'tp-close';
+    close.textContent = '关闭';
+    close.addEventListener('click', () => { $('tenpai').hidden = true; });
+    card.appendChild(close);
+    return;
+  }
 
   const title = document.createElement('h3');
   title.textContent = '胡牌提示';

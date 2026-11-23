@@ -132,6 +132,7 @@ body {
   max-width: 720px;
   margin: 0 auto;
   padding: 10px 12px 24px;
+  height: 100vh;   /* 兜底：老内核（X5 / iOS<15.4）不认识 dvh，没有这行高度会塌 */
   height: 100dvh;
   display: flex;
   flex-direction: column;
@@ -533,7 +534,7 @@ body {
 .center-dial::before {
   content: '';
   position: absolute;
-  inset: 4px;
+  top: 4px; right: 4px; bottom: 4px; left: 4px;
   border-radius: 50%;
   background: var(--felt-dark);
 }
@@ -940,7 +941,7 @@ body.replay-mode .seat-right .hand-backs.revealed .tile.tiny .tile-face { height
 
 .modal {
   position: fixed;
-  inset: 0;
+  top: 0; right: 0; bottom: 0; left: 0;
   z-index: 800;
   display: flex;
   align-items: center;
@@ -1599,7 +1600,7 @@ body.replay-mode .seat-right .hand-backs.revealed .tile.tiny .tile-face { height
   }
   html.in-play body {
     position: fixed;
-    inset: 0;
+    top: 0; right: 0; bottom: 0; left: 0;
     /* ❗必须显式交换宽高：`body` 的百分比高度要相对这层。
        `100vw` = 屏宽 = 旋转后的逻辑高度；`100dvh` = 屏的可见高 = 旋转后的逻辑宽度
        （dvh 跟随 iOS 地址栏收放；不支持 dvh 的老浏览器回退到上一行的 vh）。 */
@@ -1661,7 +1662,7 @@ body.replay-mode .seat-right .hand-backs.revealed .tile.tiny .tile-face { height
 /* 七皮 / 十杠达成播报：在各家门前弹一次，自动消失，不挡点击 */
 #achv-layer {
   position: fixed;
-  inset: 0;
+  top: 0; right: 0; bottom: 0; left: 0;
   z-index: 85;
   pointer-events: none;
   overflow: hidden;
@@ -1698,7 +1699,7 @@ body.replay-mode .seat-right .hand-backs.revealed .tile.tiny .tile-face { height
 .avatar.thinking::before {
   content: '';
   position: absolute;
-  inset: -3px;
+  top: -3px; right: -3px; bottom: -3px; left: -3px;
   border-radius: 50%;
   background: conic-gradient(#ffd75e 0 50deg, rgba(255,215,94,0) 130deg 230deg, #ffd75e 310deg 360deg);
   -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 3px));
@@ -1728,7 +1729,7 @@ body.replay-mode .seat-right .hand-backs.revealed .tile.tiny .tile-face { height
 body::after {
   content: '';
   position: fixed;
-  inset: 0;
+  top: 0; right: 0; bottom: 0; left: 0;
   z-index: 70;
   pointer-events: none;
   border: 10px solid transparent;
@@ -1756,3 +1757,72 @@ body::after {
 @media (pointer: coarse) {
   input, select, textarea { font-size: 16px !important; }
 }
+
+/* ==================================================================== */
+/* 规则速查 / 分享战绩 / 快捷短语（2026-11-20）                            */
+/* ==================================================================== */
+
+/* ---- 规则速查弹窗（.modal / .modal-card 复用通用弹窗样式） ---- */
+.rules-card { max-width: 560px; max-height: 88dvh; max-height: 88vh; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+.rules-sec { font-size: 15px; font-weight: 700; color: var(--felt, #176549); margin: 14px 0 6px; }
+.rules-line { font-size: 13px; line-height: 1.6; color: #333; padding: 3px 0 3px 12px; position: relative; }
+.rules-line::before { content: ''; position: absolute; left: 0; top: 11px; width: 5px; height: 5px; border-radius: 50%; background: var(--felt, #176549); opacity: .6; }
+.rules-close { width: 100%; margin-top: 14px; padding: 11px 0; font-size: 15px; font-weight: 700; background: var(--felt, #176549); color: #fff; border: none; border-radius: 10px; cursor: pointer; }
+
+/* ---- 分享战绩图弹窗 ---- */
+.share-card { max-width: 420px; text-align: center; }
+.share-hint { font-size: 12px; color: #777; margin: 4px 0 10px; }
+.share-img { width: 100%; border-radius: 12px; display: block; box-shadow: 0 4px 16px rgba(0,0,0,.25); }
+.share-card .tp-close { margin-top: 12px; }
+
+/* ---- 快捷短语：气泡层 + 选择器 ---- */
+#emote-layer {
+  position: fixed;
+  top: 52px; left: 0; right: 0;
+  z-index: 90;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  pointer-events: none;
+}
+.emote-bubble {
+  max-width: 78%;
+  padding: 7px 14px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, .95);
+  color: #1d3a2c;
+  font-size: 14px;
+  font-weight: 600;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, .3);
+  animation: emote-in .18s ease;
+  transition: opacity .4s ease, transform .4s ease;
+}
+.emote-bubble b { color: #b23a34; margin-right: 4px; }
+.emote-bubble.emote-out { opacity: 0; transform: translateY(-8px); }
+@keyframes emote-in { from { opacity: 0; transform: translateY(-10px) scale(.9); } }
+#emote-picker {
+  position: fixed;
+  right: 10px; top: 48px;
+  z-index: 95;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+  padding: 10px;
+  border-radius: 12px;
+  background: rgba(12, 40, 28, .96);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, .4);
+  max-width: 320px;
+}
+.emote-opt {
+  padding: 8px 10px;
+  font-size: 13px;
+  font-weight: 700;
+  background: rgba(255, 255, 255, .12);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.emote-opt:active { background: rgba(255, 255, 255, .28); }

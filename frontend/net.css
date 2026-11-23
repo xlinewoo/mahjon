@@ -309,7 +309,7 @@
 /* 牌局未开始时的遮罩提示（大厅与牌桌之间过渡） */
 #waiting {
   position: fixed;
-  inset: 0;
+  top: 0; right: 0; bottom: 0; left: 0;
   background: rgba(20, 60, 44, 0.92);
   color: #fff;
   display: flex;
@@ -468,9 +468,10 @@ body.replay-mode #app {
 }
 body.replay-mode #play {
   position: fixed;
-  inset: 0;
+  top: 0; right: 0; bottom: 0; left: 0;
   display: flex;
   flex-direction: column;
+  height: 100vh;   /* 兜底：老内核不认识 dvh */
   height: 100dvh;
   padding: 0 10px 10px;
   box-sizing: border-box;
@@ -561,7 +562,7 @@ body.replay-mode #host-controls { display: none !important; }
 /* 回放列表弹窗 */
 .rp-overlay {
   position: fixed;
-  inset: 0;
+  top: 0; right: 0; bottom: 0; left: 0;
   z-index: 90;
   display: flex;
   align-items: center;
@@ -706,7 +707,7 @@ body.replay-mode #host-controls { display: none !important; }
 }
 .auth-hero .auth-bg {
   position: absolute;
-  inset: 0;
+  top: 0; right: 0; bottom: 0; left: 0;
   width: 100%;
   height: 100%;
   object-fit: cover;
@@ -752,6 +753,7 @@ body.replay-mode #host-controls { display: none !important; }
 @media (orientation: portrait) and (pointer: coarse) {
   body.auth-open #app { padding: 0; }         /* 顶栏/标题行已 display:none，去边距即全屏 */
   .auth-hero {
+    min-height: 100vh;
     min-height: 100dvh;
     margin: 0;
     border-radius: 0;
@@ -761,7 +763,7 @@ body.replay-mode #host-controls { display: none !important; }
   .auth-hero::before {
     content: '';
     position: absolute;
-    inset: 0;
+    top: 0; right: 0; bottom: 0; left: 0;
     z-index: 0;
     background: url('/logo-card/hero.webp') center / cover no-repeat;
     filter: blur(22px) brightness(.72) saturate(1.05);
@@ -769,7 +771,7 @@ body.replay-mode #host-controls { display: none !important; }
   }
   .auth-hero .auth-bg {
     z-index: 1;                                /* 压在模糊底之上（与 panel 同层，DOM 靠后） */
-    inset: 0 5%;                               /* 左右各留 5%：金字两侧不贴屏幕边（横图自带满幅排版） */
+    top: 0; right: 5%; bottom: 0; left: 5%;     /* 老 X5 内核不认识 inset 简写，一律写长写法 */
     width: 90%;
     object-fit: contain;
     object-position: 50% 30%;                  /* logo 带落在上三分之一 */

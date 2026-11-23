@@ -596,6 +596,7 @@ async function openReplay(id, fromSession = null) {
   document.body.classList.add('replay-mode');
   // 回放也是牌桌画面：竖屏手机照旧自动横屏（style.css 的 html.in-play 作用域）
   document.documentElement.classList.add('in-play');
+  document.body.classList.add('playing');   // net3d.css 老内核兜底类（与 showPlay 同口径）
   $('lobby').hidden = true;
   $('waiting').hidden = true;
   $('play').hidden = false;
@@ -639,6 +640,7 @@ function exitPlayer() {
   $('play').hidden = true;
   // 退回放离开牌桌画面：摘掉自动横屏标记（随后 onExit→showLobby 也会再摘一次，幂等）
   document.documentElement.classList.remove('in-play');
+  document.body.classList.remove('playing');
   R.replay = null;
   R.session = null;
   R.state = null;

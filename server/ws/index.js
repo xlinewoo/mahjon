@@ -22,6 +22,12 @@ const BOT_STEP_MS = 650;
 // 避免整桌卡在摊牌界面（老吴 2026-10-20：四家都确认后才弹结算页）。
 const REVEAL_CONFIRM_MS = 10000;
 
+/* 快捷短语白名单（2026-11-20）：客户端只能发这里面的文案，广播原样转发 */
+const EMOTES = [
+  '打得号！', '对不起～', '快点唦', '稳到', '歪了歪了', '手气好得很',
+  '有点虚', '来了来了', '哎呀莫慌', '恭喜恭喜', '😂', '😅', '🤔', '👍', '🎉', '🙏',
+];
+
 export function attachSocket(httpServer) {
   // CORS：默认回显来源（局域网 / 自托管够用）。生产可设
   // CORS_ORIGIN=https://你的域名（多个用逗号分隔）收紧到白名单。
@@ -387,6 +393,19 @@ export function attachSocket(httpServer) {
     socket.on('table:join', ({ tableId } = {}, cb) => joinTable(tableId, cb));
     // reconnect 与 join 语义相同（幂等），单独留事件名兼容设计文档
     socket.on('reconnect', ({ tableId } = {}, cb) => joinTable(tableId, cb));
+
+    // 快捷短语 / 表情（2026-11-20）：只用白名单文案，服务端广播给全桌。
+    // 不落库、不进引擎状态 —— 纯氛围层，掉线重连也不补发。
+    socket.on('table:emote', ({ text } = {}, cb) => {
+      if (!allowAction(socket)) return refuseThrottled(socket, cb);
+      const room = rooms.get(socket.data.tableId);
+      if (!room) return replyErr(socket, '未加入牌桌', cb);
+      const seat = room.seatOfUid(user.id);
+      if (seat < 0) return replyErr(socket, '不在座位上', cb);
+      if (!EMOTES.includes(text)) return replyErr(socket, '不在快捷短语白名单里', cb);
+      io.to(`table:${room.tableId}`).emit('table:emote', { seat, text, at: Date.now() });
+      if (typeof cb === 'function') cb({ ok: true });
+    });
 
     socket.on('table:ready', (payload, cb) => {
       if (!allowAction(socket)) return refuseThrottled(socket, cb);

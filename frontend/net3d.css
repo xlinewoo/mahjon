@@ -4,8 +4,10 @@
 
 /* 大厅各页撑满（老吴 2026-10-25）：#app 的 720px 上限整体放开——登录/俱乐部/牌桌/
    游戏/回放/统计统一满幅，手机电脑自适应（内容网格在 net.css 的媒体查询里分档）。
-   ❗只去掉宽度上限；竖向滚动保留（大厅列表要滚）。 */
-#app { max-width: none; }
+   ❗只去掉宽度上限；竖向滚动保留（大厅列表要滚）。
+   2026-11-20：仅 3D 态撒满 —— WebGL 降级（2D 牌桌）按窄幅设计，撒到全宽会散架（老吴实测）。 */
+body.mode-3d #app { max-width: none; }
+body:not(.mode-3d) #play #table { max-width: 720px; width: 100%; margin: 0 auto; }
 
 /* 牌桌页：整屏铺满并去滚动条（:has 在现代浏览器均支持）。 */
 #app:has(#play:not([hidden])) {
@@ -624,7 +626,7 @@ html.in-play #play .topbar {
    上一版（2026-10-24）的「左信息列 + 右牌列」布局废弃。 */
 /* ① 限高用百分比：旋转态下 94dvh 按物理竖屏高(844)算，而旋转后可视高只有 390，
       弹窗超高把「下一局」按钮顶出屏幕；92% 按包含块（旋转后的 body）算，永远在屏内 */
-body.mode-3d #settle .modal-card {
+#settle .modal-card {
   display: flex;
   flex-direction: column;
   max-height: 92%;
@@ -635,20 +637,20 @@ body.mode-3d #settle .modal-card {
   overflow: hidden;
 }
 /* ② 标题/摘要区不弹性，四家列表占满剩余空间并可内部滚动（框架边框/分隔线由 style.css 基础规则出） */
-body.mode-3d #settle .modal-card > .st-list {
+#settle .modal-card > .st-list {
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
   margin: 8px 0;
 }
 /* ③ 每家两行：上行信息（可换行兜底），下行牌面单行不换行 */
-body.mode-3d #settle .st-row { display: flex; flex-direction: column; gap: 3px; padding: 6px 12px; }
-body.mode-3d #settle .st-tiles { flex-wrap: nowrap; overflow-x: auto; }
+#settle .st-row { display: flex; flex-direction: column; gap: 3px; padding: 6px 12px; }
+#settle .st-tiles { flex-wrap: nowrap; overflow-x: auto; }
 /* ④ 牌面放大：tiny 17px → 46px（整行宽度够放，放不下时 .st-tiles 内部横向滚） */
-body.mode-3d #settle .st-tiles .tile-face,
-body.mode-3d #settle .st-tiles .tile.tiny .tile-face { height: 46px !important; }
+#settle .st-tiles .tile-face,
+#settle .st-tiles .tile.tiny .tile-face { height: 46px !important; }
 /* ⑤ 按钮钉在卡底 */
-body.mode-3d #settle .st-again { flex: 0 0 auto; margin-top: 6px; }
+#settle .st-again { flex: 0 0 auto; margin-top: 6px; }
 /* ⑥ 矮屏档（老吴 2026-10-28：一屏放下四家两行，不留内滚）：
       手机是物理竖屏+CSS 旋转，媒体查询必须照 style.css 的双腿写法——
       模拟器横屏 844×390 命中第一腿，真机竖屏 390×844 命中第二腿。
@@ -683,7 +685,7 @@ body.mode-3d #settle .st-again { flex: 0 0 auto; margin-top: 6px; }
    ① 7 列表格（#/玩家/总得分/胡牌/点炮/金顶/连庄）被挤到换行；
    ② 88vh 按**物理**竖屏高算（旋转后可视高只有屏宽），卡比可视区还高，按钮被顶出屏幕。
    这里沿用 #settle 的口径：宽度用 %/px（旋转态 vw 仍是物理竖屏宽，禁用），限高按包含块百分比。 */
-body.mode-3d #exitsummary .modal-card {
+#exitsummary .modal-card {
   display: flex;
   flex-direction: column;
   width: min(98%, 780px);
@@ -691,26 +693,26 @@ body.mode-3d #exitsummary .modal-card {
   max-height: 92%;
   overflow: hidden;   /* 滚动交给里面的表格区，标题与按钮固定不动 */
 }
-body.mode-3d #exitsummary .modal-card > h3,
-body.mode-3d #exitsummary .modal-card > .stats-sub,
-body.mode-3d #exitsummary .modal-card > .exit-note,
-body.mode-3d #exitsummary .modal-card > .stats-close { flex: 0 0 auto; }
+#exitsummary .modal-card > h3,
+#exitsummary .modal-card > .stats-sub,
+#exitsummary .modal-card > .exit-note,
+#exitsummary .modal-card > .stats-close { flex: 0 0 auto; }
 /* 表格区：横屏一行放得下四家，单元格不换行（换行才是"竖屏感"的来源），放不下时内部纵向滚。
    ⚠️ 滚动容器必须是包着 <table> 的这层 div，不能给 table 自己加 overflow（会把表格变成块、列全错）。 */
-body.mode-3d #exitsummary .modal-card > .exit-table-wrap {
+#exitsummary .modal-card > .exit-table-wrap {
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
   margin-top: 6px;
 }
-body.mode-3d #exitsummary .exit-score-table { margin-top: 0; width: 100%; }
-body.mode-3d #exitsummary .exit-score-table th,
-body.mode-3d #exitsummary .exit-score-table td {
+#exitsummary .exit-score-table { margin-top: 0; width: 100%; }
+#exitsummary .exit-score-table th,
+#exitsummary .exit-score-table td {
   white-space: nowrap;
   padding: 6px 10px;
   font-size: 13px;
 }
-body.mode-3d #exitsummary .stats-close { margin-top: 8px; }
+#exitsummary .stats-close { margin-top: 8px; }
 /* 矮屏档（真机竖屏旋转 / 模拟器横屏 844×390）：同 #settle 的双腿写法 */
 @media (orientation: landscape) and (max-height: 520px),
        (orientation: portrait) and (pointer: coarse) and (max-width: 520px) {

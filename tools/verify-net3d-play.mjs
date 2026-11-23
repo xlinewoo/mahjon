@@ -452,6 +452,15 @@ try {
         continue;
       }
       settled = true;
+      // 结算弹窗截图（调试用）：SHOT_SETTLE_DIR 环境变量时在指定视口截一张
+      if (process.env.SHOT_SETTLE_DIR) {
+        const vm2 = /^(\d+)x(\d+)$/.exec(process.env.SHOT_SETTLE_VIEWPORT || '');
+        if (vm2) await session.cdp.send('Emulation.setDeviceMetricsOverride', { width: +vm2[1], height: +vm2[2], deviceScaleFactor: 1, mobile: false });
+        await sleep(700);
+        const s2 = await session.cdp.send('Page.captureScreenshot', { format: 'png' }).catch(() => null);
+        if (s2 && s2.data) writeFileSync(join(process.env.SHOT_SETTLE_DIR, 'settle-3d.png'), Buffer.from(s2.data, 'base64'));
+        if (vm2) await session.cdp.send('Emulation.clearDeviceMetricsOverride');
+      }
       break;
     }
 
