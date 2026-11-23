@@ -625,7 +625,12 @@ export function createRender3d(opts = {}) {
     const scl = ew && ewCol ? ewCol.v : (sclOverride || handScaleOf(key));
     const step = STEP_HAND * scl;
     const dirX = key === 'E' ? 1 : -1;
-    let left = count ? -((count - 1) * step) / 2 : 0;
+    /* 背面行锚定（2026-11-20，老吴「对家的手牌来回左右变化位置」）：别家摸牌 13↔14 张，
+       若按当前张数居中，整行每回合左右挪半张牌宽。改为**恒按 13 张基线居中**，
+       第 14 张（摸牌态）向右伸出一张——行基线永不移动，与 S 的「新牌挂最右」同口径。
+       E/W 竖列走 ewCol 固定 z0，不受此影响。 */
+    const backBase = Math.min(count, 13);
+    let left = count ? -((backBase - 1) * step) / 2 : 0;
     let colStep = step;
     let slotBase = 0;
     if (ew) {
@@ -747,7 +752,9 @@ export function createRender3d(opts = {}) {
     /* 老吴 2026-10-31 深夜「摸新牌手牌位置不动」：副露锚点改用**不含摸牌**的行半宽 hh0，
        平移上限也永久预留摸牌槽（step+gap）—— 摸牌/打牌前后副露与手牌逐张同位，
        摸牌只出现在最右端，不再引起整行重排。 */
-    const hh = handHalfAt(handCount, null, sc);
+    /* 副露锚点同口径：N/E/W 恒按 13 张基线算行半宽（handCount 13↔14 时副露不再左右跳）。
+       S 是自家视角，本就按「不含摸牌」锚定，保持原样。 */
+    const hh = handHalfAt(key === 'S' ? handCount : Math.min(handCount, 13), null, sc);
     const C = curHalfW - 0.06;                       // 视口内缘（左右各留 0.06）
     let meldScl = sc;
     if (normal.length) {
